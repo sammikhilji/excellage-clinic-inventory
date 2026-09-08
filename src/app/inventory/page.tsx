@@ -8,6 +8,7 @@ import { LOCATIONS, formatUnitLabel } from "@/lib/types";
 type Product = {
   id: number;
   barcode: string;
+  barcode_aliases?: string[];
   category: string;
   product: string;
   expiry: string | null;
@@ -118,6 +119,11 @@ export default function InventoryPage() {
                   <p className="truncate font-semibold text-sm">{p.product}</p>
                   <p className="truncate text-xs text-slate-500">{p.category}</p>
                   <p className="mt-1 font-mono text-[10px] text-slate-400">{p.barcode}</p>
+                  {(p.barcode_aliases || []).length > 0 && (
+                    <p className="font-mono text-[9px] text-slate-400 truncate">
+                      Unique: {(p.barcode_aliases || []).join(", ")}
+                    </p>
+                  )}
                 </div>
                 <div className="text-right shrink-0">
                   <p className="text-lg font-bold leading-none">{p.total}</p>

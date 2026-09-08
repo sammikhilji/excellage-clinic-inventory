@@ -76,6 +76,8 @@ export interface PublicUser {
 export interface Product {
   id: number;
   barcode: string;
+  /** Manufacturer GTINs / unique package codes (Data Matrix, QR) linked to this INV. */
+  barcode_aliases?: string[];
   category: string;
   product: string;
   expiry: string | null;

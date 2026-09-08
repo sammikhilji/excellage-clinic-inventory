@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ensureLocations, getStore, persistStore, recalculateTotal, nowIso } from "@/lib/db";
 import { type Activity, type StockHolding } from "@/lib/types";
-import { resolveBarcode } from "@/lib/barcodes";
+import { findProductByScan } from "@/lib/barcodes";
 
 export const dynamic = "force-dynamic";
 
@@ -50,8 +50,7 @@ export async function POST(req: NextRequest) {
       ? store.products.find((p) => p.id === productId)
       : undefined;
     if (!product && barcode) {
-      const primary = resolveBarcode(barcode);
-      product = store.products.find((p) => p.barcode.toUpperCase() === primary);
+      product = findProductByScan(store.products, barcode);
     }
     if (!product) {
       return NextResponse.json({ error: "Product not found" }, { status: 404 });

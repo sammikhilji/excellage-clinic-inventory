@@ -6,6 +6,11 @@ import {
   type StockHolding,
   type UnitType,
 } from "@/lib/types";
+import {
+  codeOwnedByOther,
+  normalizeAliasCode,
+  parseScanPayload,
+} from "@/lib/barcodes";
 
 export const dynamic = "force-dynamic";
 
@@ -20,12 +25,13 @@ export async function GET(req: NextRequest) {
   let products = store.products.slice();
 
   if (q) {
-    products = products.filter(
-      (p) =>
-        p.product.toLowerCase().includes(q) ||
-        p.barcode.toLowerCase().includes(q) ||
-        p.category.toLowerCase().includes(q)
-    );
+    products = products.filter((p) => {
+      if (p.product.toLowerCase().includes(q)) return true;
+      if (p.barcode.toLowerCase().includes(q)) return true;
+      if (p.category.toLowerCase().includes(q)) return true;
+      const aliases = p.barcode_aliases || [];
+      return aliases.some((a) => String(a).toLowerCase().includes(q));
+    });
   }
   if (category) {
     products = products.filter((p) => p.category === category);
@@ -143,8 +149,35 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const aliasInputs: string[] = [];
+    if (Array.isArray(body.barcode_aliases)) {
+      for (const a of body.barcode_aliases) {
+        const n = normalizeAliasCode(String(a || ""));
+        if (n) aliasInputs.push(n);
+      }
+    }
+    if (body.gtin != null && String(body.gtin).trim()) {
+      aliasInputs.push(normalizeAliasCode(String(body.gtin)));
+    }
+
+    // If user pasted a manufacturer GTIN / GS1 / QR unique code in barcode,
+    // keep INV as primary and store that code as an alias.
+    let scanForMeta = "";
     if (!barcode) {
       barcode = nextInvBarcode(store);
+    } else if (!/^INV-\d+$/i.test(barcode)) {
+      scanForMeta = String(body.barcode || "");
+      const asAlias = normalizeAliasCode(barcode);
+      if (asAlias) aliasInputs.push(asAlias);
+      barcode = nextInvBarcode(store);
+    }
+
+    let expiryFinal = expiry;
+    if (!expiryFinal) {
+      const parsedScan = parseScanPayload(
+        scanForMeta || String(body.gtin || "")
+      );
+      if (parsedScan.expiry) expiryFinal = parsedScan.expiry;
     }
 
     const dup = store.products.find(
@@ -157,14 +190,29 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const aliases: string[] = [];
+    for (const a of aliasInputs) {
+      if (!a || /^INV-\d+$/i.test(a)) continue;
+      if (aliases.some((x) => x.toUpperCase() === a.toUpperCase())) continue;
+      const owner = codeOwnedByOther(store.products, a);
+      if (owner) {
+        return NextResponse.json(
+          { error: `Code ${a} already linked to ${owner.barcode}` },
+          { status: 409 }
+        );
+      }
+      aliases.push(a);
+    }
+
     const createdAt = nowIso();
     const productId = store.nextIds.products++;
     const product: Product = {
       id: productId,
       barcode,
+      barcode_aliases: aliases,
       category,
       product: productName,
-      expiry,
+      expiry: expiryFinal,
       status: "OK",
       unit_type,
       price,

@@ -6,6 +6,7 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import StatusBadge from "@/components/StatusBadge";
 import { useAuth } from "@/components/AuthGate";
+import BarcodeScanner from "@/components/BarcodeScanner";
 import {
   activityTypeLabel,
   formatDateLabel,
@@ -15,6 +16,7 @@ import {
 type Detail = {
   id: number;
   barcode: string;
+  barcode_aliases?: string[];
   category: string;
   product: string;
   expiry: string | null;
@@ -51,6 +53,9 @@ export default function ProductDetailPage() {
   const [price, setPrice] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const [aliasInput, setAliasInput] = useState("");
+  const [aliasMsg, setAliasMsg] = useState<string | null>(null);
+  const [showAliasScan, setShowAliasScan] = useState(false);
 
   const canEdit = !!user && CAN_EDIT.has(user.role);
 
@@ -112,6 +117,63 @@ export default function ProductDetailPage() {
     }
   }
 
+  async function linkAlias(code: string) {
+    if (!item) return;
+    const trimmed = code.trim();
+    if (!trimmed) return;
+    setBusy(true);
+    setAliasMsg(null);
+    try {
+      const res = await fetch(`/api/products/${item.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          link_alias: trimmed,
+          adopt_scan_expiry: true,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setAliasMsg(data.error || "Link failed");
+        return;
+      }
+      setAliasInput("");
+      setShowAliasScan(false);
+      setAliasMsg("Unique code linked");
+      await load();
+    } catch {
+      setAliasMsg("Link failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function unlinkAlias(code: string) {
+    if (!item) return;
+    const ok = window.confirm(`Unlink unique code ${code}?`);
+    if (!ok) return;
+    setBusy(true);
+    setAliasMsg(null);
+    try {
+      const res = await fetch(`/api/products/${item.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ unlink_alias: code }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setAliasMsg(data.error || "Unlink failed");
+        return;
+      }
+      setAliasMsg("Unlinked");
+      await load();
+    } catch {
+      setAliasMsg("Unlink failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function deleteProduct() {
     if (!item) return;
     const ok = window.confirm(
@@ -139,6 +201,7 @@ export default function ProductDetailPage() {
   if (!item) return <p className="text-sm text-slate-500">Loading…</p>;
 
   const unit = formatUnitLabel(item.unit_type);
+  const aliases = item.barcode_aliases || [];
 
   return (
     <div className="space-y-4">
@@ -148,6 +211,11 @@ export default function ProductDetailPage() {
 
       <div className="card p-4 space-y-2">
         <p className="font-mono text-xs text-slate-500">{item.barcode}</p>
+        {aliases.length > 0 && (
+          <p className="font-mono text-[10px] text-slate-400">
+            Unique: {aliases.join(", ")}
+          </p>
+        )}
         <h2 className="text-xl font-bold leading-snug">{item.product}</h2>
         <p className="text-sm text-slate-500">{item.category}</p>
         <div className="flex flex-wrap gap-2 items-center pt-1">
@@ -174,6 +242,83 @@ export default function ProductDetailPage() {
           </p>
         )}
       </div>
+
+      {canEdit && (
+        <section className="card p-4 space-y-3">
+          <h3 className="font-bold">Unique package codes</h3>
+          <p className="text-xs text-slate-500">
+            Link manufacturer GTIN, Data Matrix, or QR sticker codes so scans
+            resolve to {item.barcode}.
+          </p>
+          {aliases.length === 0 ? (
+            <p className="text-sm text-slate-500">No unique codes linked yet.</p>
+          ) : (
+            <ul className="space-y-1.5">
+              {aliases.map((a) => (
+                <li
+                  key={a}
+                  className="flex items-center justify-between gap-2 rounded-xl bg-slate-50 px-3 py-2"
+                >
+                  <span className="font-mono text-xs break-all">{a}</span>
+                  <button
+                    type="button"
+                    className="text-[11px] font-semibold text-rose-600 shrink-0"
+                    disabled={busy}
+                    onClick={() => void unlinkAlias(a)}
+                  >
+                    Unlink
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              void linkAlias(aliasInput);
+            }}
+            className="flex gap-2"
+          >
+            <input
+              className="input font-mono text-sm"
+              value={aliasInput}
+              onChange={(e) => setAliasInput(e.target.value)}
+              placeholder="Scan or type GTIN / unique code"
+            />
+            <button
+              type="submit"
+              className="btn-primary shrink-0 px-3 text-sm"
+              disabled={busy || !aliasInput.trim()}
+            >
+              Link
+            </button>
+          </form>
+          <button
+            type="button"
+            className="btn-secondary w-full text-sm"
+            onClick={() => setShowAliasScan((v) => !v)}
+          >
+            {showAliasScan ? "Hide camera" : "Scan package to link"}
+          </button>
+          {showAliasScan && (
+            <BarcodeScanner
+              active={showAliasScan && !busy}
+              onScan={(code) => void linkAlias(code)}
+            />
+          )}
+          {aliasMsg && (
+            <p
+              className={`text-sm ${
+                aliasMsg.includes("fail") || aliasMsg.includes("already")
+                  ? "text-rose-600"
+                  : "text-emerald-700"
+              }`}
+            >
+              {aliasMsg}
+            </p>
+          )}
+        </section>
+      )}
 
       {canEdit && (
         <section className="card p-4 space-y-3">

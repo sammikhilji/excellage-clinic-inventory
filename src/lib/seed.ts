@@ -59,6 +59,7 @@ export function seedStore(store: SeedableStore) {
     const product: Product = {
       id: productId,
       barcode,
+      barcode_aliases: [],
       category,
       product: productName,
       expiry,

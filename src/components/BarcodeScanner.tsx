@@ -23,17 +23,36 @@ export default function BarcodeScanner({ onScan, onManual, active = true }: Prop
 
     async function start() {
       try {
-        const { Html5Qrcode } = await import("html5-qrcode");
+        const { Html5Qrcode, Html5QrcodeSupportedFormats } = await import(
+          "html5-qrcode"
+        );
         if (cancelled) return;
         const elId = "qr-reader";
-        const scanner = new Html5Qrcode(elId);
+        const scanner = new Html5Qrcode(elId, {
+          verbose: false,
+          formatsToSupport: [
+            Html5QrcodeSupportedFormats.QR_CODE,
+            Html5QrcodeSupportedFormats.DATA_MATRIX,
+            Html5QrcodeSupportedFormats.CODE_128,
+            Html5QrcodeSupportedFormats.CODE_39,
+            Html5QrcodeSupportedFormats.EAN_13,
+            Html5QrcodeSupportedFormats.EAN_8,
+            Html5QrcodeSupportedFormats.UPC_A,
+            Html5QrcodeSupportedFormats.UPC_E,
+            Html5QrcodeSupportedFormats.ITF,
+            Html5QrcodeSupportedFormats.RSS_14,
+            Html5QrcodeSupportedFormats.RSS_EXPANDED,
+          ],
+          useBarCodeDetectorIfSupported: true,
+        });
         scannerRef.current = scanner;
         await scanner.start(
           { facingMode: "environment" },
           {
             fps: 10,
-            qrbox: { width: 260, height: 140 },
-            aspectRatio: 1.777,
+            // Square viewfinder suits QR stickers and Data Matrix equally
+            qrbox: { width: 250, height: 250 },
+            aspectRatio: 1.0,
           },
           (decoded) => {
             const now = Date.now();
@@ -92,6 +111,9 @@ export default function BarcodeScanner({ onScan, onManual, active = true }: Prop
           {error}
         </div>
       )}
+      <p className="text-[11px] text-slate-500 text-center">
+        Point at a square Data Matrix, QR sticker, or linear barcode — or type INV-#### / GTIN below.
+      </p>
       <form onSubmit={submitManual} className="flex gap-2">
         <input
           className="input"

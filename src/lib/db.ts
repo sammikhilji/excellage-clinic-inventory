@@ -155,10 +155,13 @@ function normalizeStore(parsed: Partial<StoreData> | null | undefined): StoreDat
       users: parsed.nextIds.users ?? 1,
     },
   };
-  // Legacy products may omit price — treat as null.
+  // Legacy products may omit price / aliases — migrate gracefully.
   for (const prod of store.products) {
     if (prod.price === undefined) {
       prod.price = null;
+    }
+    if (!Array.isArray(prod.barcode_aliases)) {
+      prod.barcode_aliases = [];
     }
   }
   ensureLocations(store);

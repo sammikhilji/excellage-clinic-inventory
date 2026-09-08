@@ -1,14 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/components/AuthGate";
 import { LOCATIONS, UNIT_OPTIONS, UNIT_LABELS } from "@/lib/types";
 
-export default function NewProductPage() {
+function NewProductInner() {
   const { user } = useAuth();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [categories, setCategories] = useState<string[]>([]);
   const [locations, setLocations] = useState<string[]>([...LOCATIONS]);
   const [product, setProduct] = useState("");
@@ -25,6 +26,11 @@ export default function NewProductPage() {
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [okMsg, setOkMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    const gtin = searchParams.get("gtin") || searchParams.get("barcode") || "";
+    if (gtin) setBarcode(gtin);
+  }, [searchParams]);
 
   useEffect(() => {
     fetch("/api/products")
@@ -193,7 +199,9 @@ export default function NewProductPage() {
             placeholder="Leave blank → auto INV-####"
           />
           <p className="mt-1 text-[11px] text-slate-500">
-            Empty barcode auto-assigns the next INV-#### code.
+            Leave blank for auto INV-####. Paste a manufacturer GTIN / Data Matrix
+            / QR unique code to auto-create INV and link that code as an alias.
+            You can also link more codes after create on the product page.
           </p>
         </div>
 
@@ -323,5 +331,13 @@ export default function NewProductPage() {
         </Link>
       </form>
     </div>
+  );
+}
+
+export default function NewProductPage() {
+  return (
+    <Suspense fallback={<p className="text-sm text-slate-500">Loading…</p>}>
+      <NewProductInner />
+    </Suspense>
   );
 }
