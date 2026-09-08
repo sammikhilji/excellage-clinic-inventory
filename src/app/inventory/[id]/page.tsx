@@ -2,9 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { formatUnitLabel } from "@/lib/types";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import StatusBadge from "@/components/StatusBadge";
+import { useAuth } from "@/components/AuthGate";
 
 type Detail = {
   id: number;
@@ -26,21 +27,95 @@ type Detail = {
   }[];
 };
 
+const CAN_EDIT = new Set(["admin", "manager", "head_nurse"]);
+
 export default function ProductDetailPage() {
   const params = useParams();
+  const router = useRouter();
+  const { user } = useAuth();
   const id = params.id as string;
   const [item, setItem] = useState<Detail | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState("");
+  const [category, setCategory] = useState("");
+  const [expiry, setExpiry] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
 
-  useEffect(() => {
-    fetch(`/api/products/${id}`)
+  const canEdit = !!user && CAN_EDIT.has(user.role);
+
+  function load() {
+    return fetch(`/api/products/${id}`)
       .then(async (r) => {
         if (!r.ok) throw new Error("Not found");
         return r.json();
       })
-      .then(setItem)
+      .then((data: Detail) => {
+        setItem(data);
+        setName(data.product);
+        setCategory(data.category);
+        setExpiry(data.expiry || "");
+      })
       .catch(() => setErr("Product not found"));
+  }
+
+  useEffect(() => {
+    void load();
   }, [id]);
+
+  async function saveEdit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!item) return;
+    setBusy(true);
+    setMsg(null);
+    try {
+      const res = await fetch(`/api/products/${item.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          product: name.trim(),
+          category: category.trim(),
+          expiry: expiry.trim() || null,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setMsg(data.error || "Save failed");
+        return;
+      }
+      setEditing(false);
+      setMsg("Saved");
+      await load();
+    } catch {
+      setMsg("Save failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function deleteProduct() {
+    if (!item) return;
+    const ok = window.confirm(
+      `Delete "${item.product}"? This removes it from all locations.`
+    );
+    if (!ok) return;
+    setBusy(true);
+    setMsg(null);
+    try {
+      const res = await fetch(`/api/products/${item.id}`, { method: "DELETE" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setMsg(data.error || "Delete failed");
+        return;
+      }
+      router.push("/inventory");
+    } catch {
+      setMsg("Delete failed");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   if (err) return <p className="text-rose-600">{err}</p>;
   if (!item) return <p className="text-sm text-slate-500">Loading…</p>;
@@ -59,12 +134,116 @@ export default function ProductDetailPage() {
         <p className="text-sm text-slate-500">{item.category}</p>
         <div className="flex flex-wrap gap-2 items-center pt-1">
           <StatusBadge status={item.status} />
-          {item.expiry && <span className="text-sm text-slate-600">Expiry: {item.expiry}</span>}
+          {item.expiry && (
+            <span className="text-sm text-slate-600">Expiry: {item.expiry}</span>
+          )}
         </div>
         <p className="text-2xl font-bold pt-2">
-          {item.total} <span className="text-sm font-medium text-slate-500">{unit}</span>
+          {item.total}{" "}
+          <span className="text-sm font-medium text-slate-500">{unit}</span>
         </p>
       </div>
+
+      {canEdit && (
+        <section className="card p-4 space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <h3 className="font-bold">Edit product</h3>
+            {!editing ? (
+              <button
+                type="button"
+                className="btn-primary text-xs px-3 py-1.5"
+                onClick={() => {
+                  setName(item.product);
+                  setCategory(item.category);
+                  setExpiry(item.expiry || "");
+                  setEditing(true);
+                  setMsg(null);
+                }}
+              >
+                Edit
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="text-xs text-slate-600 font-semibold"
+                onClick={() => {
+                  setEditing(false);
+                  setMsg(null);
+                }}
+              >
+                Cancel
+              </button>
+            )}
+          </div>
+
+          {editing ? (
+            <form onSubmit={saveEdit} className="space-y-3">
+              <div>
+                <label className="label" htmlFor="edit-name">
+                  Name
+                </label>
+                <input
+                  id="edit-name"
+                  className="input"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  required
+                />
+              </div>
+              <div>
+                <label className="label" htmlFor="edit-category">
+                  Heading / category
+                </label>
+                <input
+                  id="edit-category"
+                  className="input"
+                  value={category}
+                  onChange={(e) => setCategory(e.target.value)}
+                  placeholder="e.g. PHARMACY, CONSUMABLES"
+                />
+              </div>
+              <div>
+                <label className="label" htmlFor="edit-expiry">
+                  Expiry date
+                </label>
+                <input
+                  id="edit-expiry"
+                  className="input"
+                  value={expiry}
+                  onChange={(e) => setExpiry(e.target.value)}
+                  placeholder="e.g. Jan-28 or 2028-01"
+                />
+                <p className="mt-1 text-[11px] text-slate-500">
+                  Leave blank to clear expiry.
+                </p>
+              </div>
+              <button
+                type="submit"
+                className="btn-primary w-full"
+                disabled={busy}
+              >
+                {busy ? "Saving…" : "Save changes"}
+              </button>
+            </form>
+          ) : null}
+
+          <button
+            type="button"
+            className="btn-danger w-full text-sm"
+            disabled={busy}
+            onClick={() => void deleteProduct()}
+          >
+            Delete product
+          </button>
+          {msg && (
+            <p
+              className={`text-sm ${msg === "Saved" ? "text-emerald-700" : "text-rose-600"}`}
+            >
+              {msg}
+            </p>
+          )}
+        </section>
+      )}
 
       <section className="card p-4">
         <h3 className="font-bold mb-3">Per location</h3>
@@ -82,13 +261,22 @@ export default function ProductDetailPage() {
       </section>
 
       <div className="grid grid-cols-3 gap-2">
-        <Link href={`/add?barcode=${encodeURIComponent(item.barcode)}`} className="btn-success text-xs">
+        <Link
+          href={`/add?barcode=${encodeURIComponent(item.barcode)}`}
+          className="btn-success text-xs"
+        >
           Add
         </Link>
-        <Link href={`/transfer?barcode=${encodeURIComponent(item.barcode)}`} className="btn-primary text-xs">
+        <Link
+          href={`/transfer?barcode=${encodeURIComponent(item.barcode)}`}
+          className="btn-primary text-xs"
+        >
           Move
         </Link>
-        <Link href={`/consume?barcode=${encodeURIComponent(item.barcode)}`} className="btn-danger text-xs">
+        <Link
+          href={`/consume?barcode=${encodeURIComponent(item.barcode)}`}
+          className="btn-danger text-xs"
+        >
           Use
         </Link>
       </div>
@@ -100,7 +288,10 @@ export default function ProductDetailPage() {
         ) : (
           <ul className="space-y-2">
             {item.activity.map((a) => (
-              <li key={a.id} className="rounded-xl border border-slate-100 px-3 py-2 text-sm">
+              <li
+                key={a.id}
+                className="rounded-xl border border-slate-100 px-3 py-2 text-sm"
+              >
                 <div className="flex justify-between">
                   <span className="capitalize font-medium">{a.type}</span>
                   <span
@@ -112,7 +303,11 @@ export default function ProductDetailPage() {
                           : "text-rose-700"
                     }
                   >
-                    {a.type === "receive" ? "+" : a.type === "transfer" ? "↔" : "−"}
+                    {a.type === "receive"
+                      ? "+"
+                      : a.type === "transfer"
+                        ? "↔"
+                        : "−"}
                     {a.qty}
                   </span>
                 </div>
