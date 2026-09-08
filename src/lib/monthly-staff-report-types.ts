@@ -21,11 +21,14 @@ export type StaffReport = {
   username: string | null;
   full_name: string | null;
   display_name: string;
+  receives: ReportLine[];
   transfers_from_main: ReportLine[];
   consumptions: ReportLine[];
   totals: {
+    receive_qty_sum: number;
     transfer_qty_sum: number;
     consumption_qty_sum: number;
+    receive_count: number;
     transfer_count: number;
     consumption_count: number;
   };
@@ -46,8 +49,10 @@ export type MonthlyStaffReport = {
   month_label: string;
   staff: StaffReport[];
   grand_totals: {
+    receive_qty_sum: number;
     transfer_qty_sum: number;
     consumption_qty_sum: number;
+    receive_count: number;
     transfer_count: number;
     consumption_count: number;
     staff_count: number;

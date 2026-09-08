@@ -90,6 +90,10 @@ function isConsumptionOrSale(a: Activity): boolean {
   return a.type === "consumption" || a.type === "sale";
 }
 
+function isReceive(a: Activity): boolean {
+  return a.type === "receive";
+}
+
 function parseToLocation(location: string): string {
   const arrow = location.includes("→")
     ? "→"
@@ -129,6 +133,7 @@ export function buildMonthlyStaffReport(
     string,
     {
       username: string | null;
+      receives: ReportLine[];
       transfers_from_main: ReportLine[];
       consumptions: ReportLine[];
     }
@@ -137,7 +142,12 @@ export function buildMonthlyStaffReport(
   const ensure = (key: string, username: string | null) => {
     let bucket = byStaff.get(key);
     if (!bucket) {
-      bucket = { username, transfers_from_main: [], consumptions: [] };
+      bucket = {
+        username,
+        receives: [],
+        transfers_from_main: [],
+        consumptions: [],
+      };
       byStaff.set(key, bucket);
     }
     return bucket;
@@ -153,7 +163,18 @@ export function buildMonthlyStaffReport(
       product?.product || a.product_name || `Product #${a.product_id}`;
     const barcode = product?.barcode || a.barcode || "";
 
-    if (isTransferFromMain(a)) {
+    if (isReceive(a)) {
+      const bucket = ensure(key, username);
+      bucket.receives.push({
+        date: a.created_at,
+        product_name,
+        barcode,
+        qty: a.qty,
+        location: a.location,
+        type: a.type,
+        note: a.note ?? null,
+      });
+    } else if (isTransferFromMain(a)) {
       const bucket = ensure(key, username);
       bucket.transfers_from_main.push({
         date: a.created_at,
@@ -179,6 +200,10 @@ export function buildMonthlyStaffReport(
 
   const staff: StaffReport[] = [];
   for (const [key, bucket] of byStaff) {
+    const receive_qty_sum = bucket.receives.reduce(
+      (s, r) => s + Number(r.qty || 0),
+      0
+    );
     const transfer_qty_sum = bucket.transfers_from_main.reduce(
       (s, r) => s + Number(r.qty || 0),
       0
@@ -187,10 +212,13 @@ export function buildMonthlyStaffReport(
       (s, r) => s + Number(r.qty || 0),
       0
     );
+    const receive_count = bucket.receives.length;
     const transfer_count = bucket.transfers_from_main.length;
     const consumption_count = bucket.consumptions.length;
-    if (transfer_count === 0 && consumption_count === 0) continue;
+    if (receive_count === 0 && transfer_count === 0 && consumption_count === 0)
+      continue;
 
+    bucket.receives.sort((a, b) => a.date.localeCompare(b.date));
     bucket.transfers_from_main.sort((a, b) => a.date.localeCompare(b.date));
     bucket.consumptions.sort((a, b) => a.date.localeCompare(b.date));
 
@@ -207,11 +235,14 @@ export function buildMonthlyStaffReport(
       username: bucket.username,
       full_name,
       display_name,
+      receives: bucket.receives,
       transfers_from_main: bucket.transfers_from_main,
       consumptions: bucket.consumptions,
       totals: {
+        receive_qty_sum,
         transfer_qty_sum,
         consumption_qty_sum,
+        receive_count,
         transfer_count,
         consumption_count,
       },
@@ -225,11 +256,13 @@ export function buildMonthlyStaffReport(
   });
 
   const grand_totals = {
+    receive_qty_sum: staff.reduce((s, x) => s + x.totals.receive_qty_sum, 0),
     transfer_qty_sum: staff.reduce((s, x) => s + x.totals.transfer_qty_sum, 0),
     consumption_qty_sum: staff.reduce(
       (s, x) => s + x.totals.consumption_qty_sum,
       0
     ),
+    receive_count: staff.reduce((s, x) => s + x.totals.receive_count, 0),
     transfer_count: staff.reduce((s, x) => s + x.totals.transfer_count, 0),
     consumption_count: staff.reduce(
       (s, x) => s + x.totals.consumption_count,
@@ -276,6 +309,23 @@ export function reportToCsv(report: MonthlyStaffReport): string {
   ];
   const lines = [header.join(",")];
   for (const s of report.staff) {
+    for (const r of s.receives) {
+      lines.push(
+        [
+          csvEscape(s.display_name),
+          csvEscape(s.username),
+          "stock_added",
+          csvEscape(r.date),
+          csvEscape(r.product_name),
+          csvEscape(r.barcode),
+          csvEscape(r.qty),
+          "",
+          csvEscape(r.location),
+          "receive",
+          csvEscape(r.note),
+        ].join(",")
+      );
+    }
     for (const t of s.transfers_from_main) {
       lines.push(
         [

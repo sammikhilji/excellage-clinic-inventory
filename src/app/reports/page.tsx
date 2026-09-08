@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useAuth } from "@/components/AuthGate";
 import type { MonthlyStaffReport } from "@/lib/monthly-staff-report-types";
 import { REPORT_ALLOWED_ROLES } from "@/lib/monthly-staff-report-types";
+import { formatDateLabel, timeOnly } from "@/lib/activity-display";
 
 /** YYYY-MM-DD in Asia/Dubai (falls back to local if Intl fails). */
 function ymdInDubai(d = new Date()): string {
@@ -31,6 +32,11 @@ function defaultDateRange() {
 
 function fmtQty(n: number) {
   return Number.isInteger(n) ? String(n) : n.toFixed(1);
+}
+
+function dateLine(createdAt: string): string {
+  const t = timeOnly(createdAt);
+  return t ? `${formatDateLabel(createdAt)} · ${t}` : formatDateLabel(createdAt);
 }
 
 export default function ReportsPage() {
@@ -112,7 +118,7 @@ export default function ReportsPage() {
         <div>
           <h2 className="text-lg font-bold">Staff stock report</h2>
           <p className="text-xs text-slate-500">
-            Stock taken from Main Store · consumption / sale by staff
+            Stock added · transfers from Main Store · use / sale by staff
           </p>
         </div>
         <Link href="/" className="text-xs font-semibold text-brand-700">
@@ -206,6 +212,17 @@ export default function ReportsPage() {
             </div>
             <div className="card p-3">
               <p className="text-[10px] uppercase text-slate-500 font-semibold">
+                Stock added
+              </p>
+              <p className="text-xl font-bold text-emerald-700">
+                {fmtQty(report.grand_totals.receive_qty_sum)}
+              </p>
+              <p className="text-[10px] text-slate-500">
+                {report.grand_totals.receive_count} additions
+              </p>
+            </div>
+            <div className="card p-3">
+              <p className="text-[10px] uppercase text-slate-500 font-semibold">
                 From Main Store
               </p>
               <p className="text-xl font-bold text-brand-700">
@@ -215,7 +232,7 @@ export default function ReportsPage() {
                 {report.grand_totals.transfer_count} transfers
               </p>
             </div>
-            <div className="card p-3">
+            <div className="card p-3 col-span-2">
               <p className="text-[10px] uppercase text-slate-500 font-semibold">
                 Use / sale
               </p>
@@ -230,8 +247,8 @@ export default function ReportsPage() {
 
           {report.staff.length === 0 ? (
             <p className="text-sm text-slate-500 card p-4">
-              No transfers from Main Store or consumption/sale recorded for this
-              date range.
+              No stock additions, transfers from Main Store, or use/sale recorded
+              for this date range.
             </p>
           ) : (
             <div className="space-y-4">
@@ -253,6 +270,10 @@ export default function ReportsPage() {
                     </div>
                     <div className="text-right text-[10px] text-slate-500 leading-tight">
                       <div>
+                        + {s.totals.receive_count} · qty{" "}
+                        {fmtQty(s.totals.receive_qty_sum)}
+                      </div>
+                      <div>
                         ↔ {s.totals.transfer_count} · qty{" "}
                         {fmtQty(s.totals.transfer_qty_sum)}
                       </div>
@@ -262,6 +283,39 @@ export default function ReportsPage() {
                       </div>
                     </div>
                   </div>
+
+                  {s.receives.length > 0 && (
+                    <div className="mb-3">
+                      <h4 className="text-xs font-semibold uppercase tracking-wide text-emerald-700 mb-1.5">
+                        Stock added
+                      </h4>
+                      <ul className="divide-y divide-slate-100 rounded-xl border border-slate-100 overflow-hidden">
+                        {s.receives.map((r, i) => (
+                          <li
+                            key={`r-${i}-${r.date}`}
+                            className="bg-emerald-50/60 px-3 py-2 text-sm"
+                          >
+                            <div className="flex justify-between gap-2">
+                              <span className="font-medium truncate">
+                                {r.product_name}
+                              </span>
+                              <span className="font-semibold text-emerald-700 shrink-0">
+                                {fmtQty(r.qty)}
+                              </span>
+                            </div>
+                            <p className="text-[11px] font-medium text-slate-700">
+                              {dateLine(r.date)}
+                            </p>
+                            <p className="text-[11px] text-slate-500">
+                              {r.location || "—"}
+                              {r.barcode ? ` · ${r.barcode}` : ""}
+                              {r.note ? ` · ${r.note}` : ""}
+                            </p>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
 
                   {s.transfers_from_main.length > 0 && (
                     <div className="mb-3">
@@ -282,8 +336,11 @@ export default function ReportsPage() {
                                 {fmtQty(t.qty)}
                               </span>
                             </div>
+                            <p className="text-[11px] font-medium text-slate-700">
+                              {dateLine(t.date)}
+                            </p>
                             <p className="text-[11px] text-slate-500">
-                              {t.date.slice(0, 10)} · → {t.to_location}
+                              → {t.to_location}
                               {t.barcode ? ` · ${t.barcode}` : ""}
                               {t.note ? ` · ${t.note}` : ""}
                             </p>
@@ -312,8 +369,11 @@ export default function ReportsPage() {
                                 {fmtQty(c.qty)}
                               </span>
                             </div>
+                            <p className="text-[11px] font-medium text-slate-700">
+                              {dateLine(c.date)}
+                            </p>
                             <p className="text-[11px] text-slate-500">
-                              {c.date.slice(0, 10)} · {c.type} · {c.location}
+                              {c.type} · {c.location}
                               {c.barcode ? ` · ${c.barcode}` : ""}
                               {c.note ? ` · ${c.note}` : ""}
                             </p>

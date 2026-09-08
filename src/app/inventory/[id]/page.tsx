@@ -6,6 +6,11 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import StatusBadge from "@/components/StatusBadge";
 import { useAuth } from "@/components/AuthGate";
+import {
+  activityTypeLabel,
+  formatDateLabel,
+  timeOnly,
+} from "@/lib/activity-display";
 
 type Detail = {
   id: number;
@@ -369,7 +374,7 @@ export default function ProductDetailPage() {
                 className="rounded-xl border border-slate-100 px-3 py-2 text-sm"
               >
                 <div className="flex justify-between">
-                  <span className="capitalize font-medium">{a.type}</span>
+                  <span className="font-medium">{activityTypeLabel(a.type)}</span>
                   <span
                     className={
                       a.type === "receive"
@@ -387,8 +392,12 @@ export default function ProductDetailPage() {
                     {a.qty}
                   </span>
                 </div>
+                <p className="text-xs font-medium text-slate-700">
+                  {formatDateLabel(a.created_at)}
+                  {timeOnly(a.created_at) ? ` · ${timeOnly(a.created_at)}` : ""}
+                </p>
                 <p className="text-xs text-slate-500">
-                  {a.location} · {a.created_at}
+                  {a.location}
                   {a.note ? ` · ${a.note}` : ""}
                 </p>
               </li>

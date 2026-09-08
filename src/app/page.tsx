@@ -6,6 +6,11 @@ import StatusBadge from "@/components/StatusBadge";
 import type { DashboardData } from "@/lib/types";
 import { useAuth } from "@/components/AuthGate";
 import { REPORT_ALLOWED_ROLES } from "@/lib/monthly-staff-report-types";
+import {
+  activityTypeLabel,
+  formatDateLabel,
+  timeOnly,
+} from "@/lib/activity-display";
 
 export default function DashboardPage() {
   const { user } = useAuth();
@@ -124,8 +129,12 @@ export default function DashboardPage() {
                     {a.qty}
                   </span>
                 </div>
+                <p className="text-xs font-medium text-slate-700">
+                  {activityTypeLabel(a.type)} · {formatDateLabel(a.created_at)}
+                  {timeOnly(a.created_at) ? ` · ${timeOnly(a.created_at)}` : ""}
+                </p>
                 <p className="text-xs text-slate-500">
-                  {a.type} · {a.location} · {a.created_at}
+                  {a.location}
                   {a.username ? ` · ${a.username}` : ""}
                 </p>
               </li>
