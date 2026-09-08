@@ -6,9 +6,27 @@ import { useAuth } from "@/components/AuthGate";
 import type { MonthlyStaffReport } from "@/lib/monthly-staff-report-types";
 import { REPORT_ALLOWED_ROLES } from "@/lib/monthly-staff-report-types";
 
-function currentYearMonth() {
-  const now = new Date();
-  return { year: now.getFullYear(), month: now.getMonth() + 1 };
+/** YYYY-MM-DD in Asia/Dubai (falls back to local if Intl fails). */
+function ymdInDubai(d = new Date()): string {
+  try {
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Dubai",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(d);
+  } catch {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  }
+}
+
+function defaultDateRange() {
+  const to = ymdInDubai();
+  const from = `${to.slice(0, 7)}-01`;
+  return { from, to };
 }
 
 function fmtQty(n: number) {
@@ -17,9 +35,9 @@ function fmtQty(n: number) {
 
 export default function ReportsPage() {
   const { user } = useAuth();
-  const initial = useMemo(() => currentYearMonth(), []);
-  const [year, setYear] = useState(initial.year);
-  const [month, setMonth] = useState(initial.month);
+  const initial = useMemo(() => defaultDateRange(), []);
+  const [from, setFrom] = useState(initial.from);
+  const [to, setTo] = useState(initial.to);
   const [report, setReport] = useState<MonthlyStaffReport | null>(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -27,13 +45,25 @@ export default function ReportsPage() {
   const allowed =
     !!user && REPORT_ALLOWED_ROLES.includes(user.role);
 
+  const rangeInvalid = !from || !to || from > to;
+
   const load = useCallback(async () => {
     if (!allowed) return;
+    if (!from || !to) {
+      setErr("Select From and To dates");
+      setReport(null);
+      return;
+    }
+    if (from > to) {
+      setErr("From must be on or before To");
+      setReport(null);
+      return;
+    }
     setLoading(true);
     setErr(null);
     try {
       const res = await fetch(
-        `/api/reports/monthly-staff?year=${year}&month=${month}`
+        `/api/reports/monthly-staff?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`
       );
       const data = await res.json();
       if (!res.ok) {
@@ -48,18 +78,22 @@ export default function ReportsPage() {
     } finally {
       setLoading(false);
     }
-  }, [allowed, year, month]);
+  }, [allowed, from, to]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
-  const monthInputValue = `${year}-${String(month).padStart(2, "0")}`;
+  const setThisMonth = () => {
+    const r = defaultDateRange();
+    setFrom(r.from);
+    setTo(r.to);
+  };
 
   if (!allowed) {
     return (
       <div className="space-y-3">
-        <h2 className="text-lg font-bold">Monthly staff report</h2>
+        <h2 className="text-lg font-bold">Staff stock report</h2>
         <p className="text-sm text-rose-600">
           This report is only available to admin, manager, and head nurse.
         </p>
@@ -70,11 +104,13 @@ export default function ReportsPage() {
     );
   }
 
+  const rangeLabel = report?.range_label || report?.month_label || `${from} → ${to}`;
+
   return (
     <div className="space-y-4 report-page">
       <div className="no-print flex items-start justify-between gap-2">
         <div>
-          <h2 className="text-lg font-bold">Monthly staff report</h2>
+          <h2 className="text-lg font-bold">Staff stock report</h2>
           <p className="text-xs text-slate-500">
             Stock taken from Main Store · consumption / sale by staff
           </p>
@@ -85,36 +121,53 @@ export default function ReportsPage() {
       </div>
 
       <div className="no-print card p-4 space-y-3">
-        <label className="label" htmlFor="report-month">
-          Month
-        </label>
-        <input
-          id="report-month"
-          type="month"
-          className="input"
-          value={monthInputValue}
-          onChange={(e) => {
-            const v = e.target.value;
-            if (!v) return;
-            const [y, m] = v.split("-").map((x) => parseInt(x, 10));
-            if (y && m) {
-              setYear(y);
-              setMonth(m);
-            }
-          }}
-        />
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="label" htmlFor="report-from">
+              From
+            </label>
+            <input
+              id="report-from"
+              type="date"
+              className="input"
+              value={from}
+              max={to || undefined}
+              onChange={(e) => setFrom(e.target.value)}
+            />
+          </div>
+          <div>
+            <label className="label" htmlFor="report-to">
+              To
+            </label>
+            <input
+              id="report-to"
+              type="date"
+              className="input"
+              value={to}
+              min={from || undefined}
+              onChange={(e) => setTo(e.target.value)}
+            />
+          </div>
+        </div>
+        <button
+          type="button"
+          className="btn-secondary text-xs w-full"
+          onClick={setThisMonth}
+        >
+          This month (1st → today)
+        </button>
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
             className="btn-secondary text-sm flex-1"
             onClick={() => window.print()}
-            disabled={!report}
+            disabled={!report || rangeInvalid}
           >
             🖨 Print
           </button>
           <a
-            className={`btn-primary text-sm flex-1 text-center ${!report ? "pointer-events-none opacity-50" : ""}`}
-            href={`/api/reports/monthly-staff.csv?year=${year}&month=${month}`}
+            className={`btn-primary text-sm flex-1 text-center ${!report || rangeInvalid ? "pointer-events-none opacity-50" : ""}`}
+            href={`/api/reports/monthly-staff.csv?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`}
             download
           >
             ⬇ CSV (Excel)
@@ -130,7 +183,7 @@ export default function ReportsPage() {
           <div className="print-only mb-4">
             <h1 className="text-xl font-bold">Clinic Inventory</h1>
             <p className="text-sm">
-              Monthly staff stock report — {report.month_label}
+              Staff stock report — {rangeLabel}
             </p>
           </div>
 
@@ -145,10 +198,10 @@ export default function ReportsPage() {
             </div>
             <div className="card p-3">
               <p className="text-[10px] uppercase text-slate-500 font-semibold">
-                Month
+                Date range
               </p>
               <p className="text-sm font-bold leading-tight pt-1">
-                {report.month_label}
+                {rangeLabel}
               </p>
             </div>
             <div className="card p-3">
@@ -178,7 +231,7 @@ export default function ReportsPage() {
           {report.staff.length === 0 ? (
             <p className="text-sm text-slate-500 card p-4">
               No transfers from Main Store or consumption/sale recorded for this
-              month.
+              date range.
             </p>
           ) : (
             <div className="space-y-4">

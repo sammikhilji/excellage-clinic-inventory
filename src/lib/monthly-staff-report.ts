@@ -13,24 +13,48 @@ export type {
 } from "./monthly-staff-report-types";
 export { REPORT_ALLOWED_ROLES } from "./monthly-staff-report-types";
 
-const MONTH_NAMES = [
-  "January",
-  "February",
-  "March",
-  "April",
-  "May",
-  "June",
-  "July",
-  "August",
-  "September",
-  "October",
-  "November",
-  "December",
-];
-
 const UNKNOWN_KEY = "__unknown__";
 const UNKNOWN_LABEL = "Unknown / before login tracking";
 
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Validate YYYY-MM-DD and that it is a real calendar date. */
+export function parseDateParam(
+  raw: string | null,
+  label: string
+): { date: string } | { error: string } {
+  const value = (raw || "").trim();
+  if (!DATE_RE.test(value)) {
+    return { error: `Invalid ${label} (expected YYYY-MM-DD)` };
+  }
+  const [y, m, d] = value.split("-").map((x) => parseInt(x, 10));
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  if (
+    dt.getUTCFullYear() !== y ||
+    dt.getUTCMonth() !== m - 1 ||
+    dt.getUTCDate() !== d
+  ) {
+    return { error: `Invalid ${label} (not a real date)` };
+  }
+  return { date: value };
+}
+
+/** Parse and validate inclusive from/to query params. */
+export function parseDateRange(
+  fromRaw: string | null,
+  toRaw: string | null
+): { from: string; to: string } | { error: string } {
+  const fromParsed = parseDateParam(fromRaw, "from");
+  if ("error" in fromParsed) return fromParsed;
+  const toParsed = parseDateParam(toRaw, "to");
+  if ("error" in toParsed) return toParsed;
+  if (fromParsed.date > toParsed.date) {
+    return { error: "Invalid range: from must be on or before to" };
+  }
+  return { from: fromParsed.date, to: toParsed.date };
+}
+
+/** @deprecated Prefer parseDateRange. Still used if year/month only are sent. */
 export function parseYearMonth(
   yearRaw: string | null,
   monthRaw: string | null
@@ -46,8 +70,9 @@ export function parseYearMonth(
   return { year, month };
 }
 
-function monthPrefix(year: number, month: number): string {
-  return `${year}-${String(month).padStart(2, "0")}`;
+export function formatRangeLabel(from: string, to: string): string {
+  if (from === to) return from;
+  return `${from} → ${to}`;
 }
 
 function isTransferFromMain(a: Activity): boolean {
@@ -81,12 +106,20 @@ function staffKey(username: string | null | undefined): string {
   return String(username).trim().toLowerCase();
 }
 
+/** Inclusive: created_at in [from 00:00:00, to 23:59:59]. */
+function inDateRange(createdAt: string, from: string, to: string): boolean {
+  if (!createdAt) return false;
+  const start = `${from} 00:00:00`;
+  const end = `${to} 23:59:59`;
+  // created_at is stored as "YYYY-MM-DD HH:MM:SS" (lexicographic-safe)
+  return createdAt >= start && createdAt <= end;
+}
+
 export function buildMonthlyStaffReport(
   store: StoreData,
-  year: number,
-  month: number
+  from: string,
+  to: string
 ): MonthlyStaffReport {
-  const prefix = monthPrefix(year, month);
   const productById = new Map(store.products.map((p) => [p.id, p]));
   const userByUsername = new Map(
     store.users.map((u) => [u.username.toLowerCase(), u])
@@ -111,7 +144,7 @@ export function buildMonthlyStaffReport(
   };
 
   for (const a of store.activity) {
-    if (!a.created_at || !a.created_at.startsWith(prefix)) continue;
+    if (!inDateRange(a.created_at, from, to)) continue;
 
     const key = staffKey(a.username);
     const username = key === UNKNOWN_KEY ? null : key;
@@ -205,10 +238,16 @@ export function buildMonthlyStaffReport(
     staff_count: staff.length,
   };
 
+  const range_label = formatRangeLabel(from, to);
+  const [fy, fm] = from.split("-").map((x) => parseInt(x, 10));
+
   return {
-    year,
-    month,
-    month_label: `${MONTH_NAMES[month - 1]} ${year}`,
+    from,
+    to,
+    range_label,
+    year: fy,
+    month: fm,
+    month_label: range_label,
     staff,
     grand_totals,
   };

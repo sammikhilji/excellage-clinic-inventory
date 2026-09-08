@@ -3,6 +3,7 @@ import { getStore } from "@/lib/db";
 import {
   REPORT_ALLOWED_ROLES,
   buildMonthlyStaffReport,
+  parseDateRange,
   parseYearMonth,
   reportToCsv,
 } from "@/lib/monthly-staff-report";
@@ -27,29 +28,49 @@ async function requireReportAccess(req: NextRequest) {
   return { store, me };
 }
 
+/** Resolve from/to: prefer explicit params; fall back to year+month (whole month). */
+function resolveRange(req: NextRequest): { from: string; to: string } | { error: string } {
+  const fromQ = req.nextUrl.searchParams.get("from");
+  const toQ = req.nextUrl.searchParams.get("to");
+  if (fromQ || toQ) {
+    return parseDateRange(fromQ, toQ);
+  }
+  const ym = parseYearMonth(
+    req.nextUrl.searchParams.get("year"),
+    req.nextUrl.searchParams.get("month")
+  );
+  if ("error" in ym) {
+    return {
+      error:
+        "Provide from & to (YYYY-MM-DD), or year & month. " + ym.error,
+    };
+  }
+  const from = `${ym.year}-${String(ym.month).padStart(2, "0")}-01`;
+  const lastDay = new Date(Date.UTC(ym.year, ym.month, 0)).getUTCDate();
+  const to = `${ym.year}-${String(ym.month).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
+  return { from, to };
+}
+
 export async function GET(req: NextRequest) {
   try {
     const access = await requireReportAccess(req);
     if ("error" in access && access.error) return access.error;
 
-    const parsed = parseYearMonth(
-      req.nextUrl.searchParams.get("year"),
-      req.nextUrl.searchParams.get("month")
-    );
+    const parsed = resolveRange(req);
     if ("error" in parsed) {
       return NextResponse.json({ error: parsed.error }, { status: 400 });
     }
 
     const report = buildMonthlyStaffReport(
       access.store!,
-      parsed.year,
-      parsed.month
+      parsed.from,
+      parsed.to
     );
 
     const format = (req.nextUrl.searchParams.get("format") || "").toLowerCase();
     if (format === "csv") {
       const csv = reportToCsv(report);
-      const filename = `monthly-staff-${parsed.year}-${String(parsed.month).padStart(2, "0")}.csv`;
+      const filename = `staff-stock-${parsed.from}_to_${parsed.to}.csv`;
       return new NextResponse(csv, {
         status: 200,
         headers: {

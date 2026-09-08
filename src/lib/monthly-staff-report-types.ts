@@ -32,8 +32,17 @@ export type StaffReport = {
 };
 
 export type MonthlyStaffReport = {
+  /** Inclusive start date YYYY-MM-DD */
+  from: string;
+  /** Inclusive end date YYYY-MM-DD */
+  to: string;
+  /** Human-readable range for titles/headers */
+  range_label: string;
+  /** @deprecated kept for older clients; derived from `from` */
   year: number;
+  /** @deprecated kept for older clients; derived from `from` */
   month: number;
+  /** @deprecated alias of range_label */
   month_label: string;
   staff: StaffReport[];
   grand_totals: {
