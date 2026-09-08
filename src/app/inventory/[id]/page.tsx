@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { formatUnitLabel } from "@/lib/types";
+import { formatUnitLabel, UNIT_OPTIONS, UNIT_LABELS } from "@/lib/types";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import StatusBadge from "@/components/StatusBadge";
@@ -15,6 +15,7 @@ type Detail = {
   expiry: string | null;
   status: string;
   unit_type: string;
+  price: number | null;
   total: number;
   holdings: { location: string; qty: number }[];
   activity: {
@@ -40,6 +41,9 @@ export default function ProductDetailPage() {
   const [name, setName] = useState("");
   const [category, setCategory] = useState("");
   const [expiry, setExpiry] = useState("");
+  const [unitType, setUnitType] = useState<string>("units");
+  const [customUnit, setCustomUnit] = useState("");
+  const [price, setPrice] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
@@ -56,6 +60,10 @@ export default function ProductDetailPage() {
         setName(data.product);
         setCategory(data.category);
         setExpiry(data.expiry || "");
+        const known = (UNIT_OPTIONS as readonly string[]).includes(data.unit_type);
+        setUnitType(known ? data.unit_type : "__custom__");
+        setCustomUnit(known ? "" : data.unit_type || "");
+        setPrice(data.price != null ? String(data.price) : "");
       })
       .catch(() => setErr("Product not found"));
   }
@@ -77,6 +85,11 @@ export default function ProductDetailPage() {
           product: name.trim(),
           category: category.trim(),
           expiry: expiry.trim() || null,
+          unit_type:
+            unitType === "__custom__"
+              ? customUnit.trim() || "units"
+              : unitType,
+          price: price.trim() === "" ? null : Number(price),
         }),
       });
       const data = await res.json();
@@ -142,6 +155,19 @@ export default function ProductDetailPage() {
           {item.total}{" "}
           <span className="text-sm font-medium text-slate-500">{unit}</span>
         </p>
+        {item.price != null && (
+          <p className="text-sm text-slate-600">
+            Price:{" "}
+            <span className="font-semibold">
+              {item.price.toLocaleString(undefined, {
+                style: "currency",
+                currency: "AED",
+                minimumFractionDigits: 0,
+                maximumFractionDigits: 2,
+              })}
+            </span>
+          </p>
+        )}
       </div>
 
       {canEdit && (
@@ -156,6 +182,12 @@ export default function ProductDetailPage() {
                   setName(item.product);
                   setCategory(item.category);
                   setExpiry(item.expiry || "");
+                  const known = (UNIT_OPTIONS as readonly string[]).includes(
+                    item.unit_type
+                  );
+                  setUnitType(known ? item.unit_type : "__custom__");
+                  setCustomUnit(known ? "" : item.unit_type || "");
+                  setPrice(item.price != null ? String(item.price) : "");
                   setEditing(true);
                   setMsg(null);
                 }}
@@ -215,6 +247,50 @@ export default function ProductDetailPage() {
                 />
                 <p className="mt-1 text-[11px] text-slate-500">
                   Leave blank to clear expiry.
+                </p>
+              </div>
+              <div>
+                <label className="label" htmlFor="edit-unit">
+                  Unit (how stock is counted)
+                </label>
+                <select
+                  id="edit-unit"
+                  className="input py-2.5 text-sm"
+                  value={unitType}
+                  onChange={(e) => setUnitType(e.target.value)}
+                >
+                  {UNIT_OPTIONS.map((u) => (
+                    <option key={u} value={u}>
+                      {UNIT_LABELS[u] || u}
+                    </option>
+                  ))}
+                  <option value="__custom__">Custom…</option>
+                </select>
+                {unitType === "__custom__" && (
+                  <input
+                    className="input mt-2"
+                    value={customUnit}
+                    onChange={(e) => setCustomUnit(e.target.value)}
+                    placeholder="e.g. ampule, kit, cartridge"
+                  />
+                )}
+              </div>
+              <div>
+                <label className="label" htmlFor="edit-price">
+                  Price (optional)
+                </label>
+                <input
+                  id="edit-price"
+                  type="number"
+                  min={0}
+                  step="any"
+                  className="input"
+                  value={price}
+                  onChange={(e) => setPrice(e.target.value)}
+                  placeholder="Leave blank for no price"
+                />
+                <p className="mt-1 text-[11px] text-slate-500">
+                  Money amount per product — separate from unit type. Clear to remove.
                 </p>
               </div>
               <button

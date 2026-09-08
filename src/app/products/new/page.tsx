@@ -20,6 +20,7 @@ export default function NewProductPage() {
   const [expiry, setExpiry] = useState("");
   const [location, setLocation] = useState<string>("Main Store");
   const [initialQty, setInitialQty] = useState("0");
+  const [price, setPrice] = useState("");
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -71,6 +72,14 @@ export default function NewProductPage() {
       setErr("Initial quantity must be 0 or more");
       return;
     }
+    let priceVal: number | null = null;
+    if (price.trim() !== "") {
+      priceVal = Number(price);
+      if (Number.isNaN(priceVal) || priceVal < 0) {
+        setErr("Price must be 0 or more, or leave blank");
+        return;
+      }
+    }
 
     setSaving(true);
     try {
@@ -86,6 +95,7 @@ export default function NewProductPage() {
               ? customUnit.trim() || "units"
               : unitType,
           expiry: expiry.trim() || null,
+          price: priceVal,
           location,
           initial_qty: qty,
           note: note.trim() || undefined,
@@ -190,7 +200,7 @@ export default function NewProductPage() {
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="label" htmlFor="np-unit">
-              Unit
+              Unit (stock count)
             </label>
             <select
               id="np-unit"
@@ -226,6 +236,25 @@ export default function NewProductPage() {
               onChange={(e) => setExpiry(e.target.value)}
             />
           </div>
+        </div>
+
+        <div>
+          <label className="label" htmlFor="np-price">
+            Price (optional)
+          </label>
+          <input
+            id="np-price"
+            type="number"
+            min={0}
+            step="any"
+            className="input"
+            value={price}
+            onChange={(e) => setPrice(e.target.value)}
+            placeholder="e.g. 450 — money amount, not units"
+          />
+          <p className="mt-1 text-[11px] text-slate-500">
+            Separate from unit type above. Leave blank if no price.
+          </p>
         </div>
 
         <div className="grid grid-cols-2 gap-3">

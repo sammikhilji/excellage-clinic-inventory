@@ -93,6 +93,20 @@ export async function PATCH(
       const unit = String(body.unit_type ?? body.unit ?? "").trim();
       if (unit) product.unit_type = unit;
     }
+    if (body.price !== undefined) {
+      if (body.price === null || body.price === "") {
+        product.price = null;
+      } else {
+        const n = Number(body.price);
+        if (Number.isNaN(n) || n < 0) {
+          return NextResponse.json(
+            { error: "Price must be a number >= 0 or null" },
+            { status: 400 }
+          );
+        }
+        product.price = n;
+      }
+    }
     if (body.status != null) {
       const status = String(body.status).trim();
       if (status) product.status = status;

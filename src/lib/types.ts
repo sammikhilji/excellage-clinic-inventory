@@ -15,8 +15,10 @@ export const UNIT_OPTIONS = [
   "syringe",
   "vial",
   "mL",
+  "cc",
   "lines",
   "box",
+  "packet",
   "piece",
 ] as const;
 
@@ -30,8 +32,10 @@ export const UNIT_LABELS: Record<string, string> = {
   syringe: "Syringe",
   vial: "Vial",
   mL: "mL",
+  cc: "cc",
   lines: "Lines",
   box: "Box",
+  packet: "Packet",
   piece: "Piece",
 };
 
@@ -77,6 +81,8 @@ export interface Product {
   expiry: string | null;
   status: string;
   unit_type: UnitType;
+  /** Optional unit price; null/omitted for legacy products. */
+  price: number | null;
   total: number;
   created_at: string;
 }

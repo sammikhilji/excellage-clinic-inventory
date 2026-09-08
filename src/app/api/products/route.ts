@@ -109,6 +109,20 @@ export async function POST(req: NextRequest) {
       (typeof body.username === "string" && body.username.trim()) ||
       usernameCookie;
 
+    let price: number | null = null;
+    if (body.price !== undefined && body.price !== null && body.price !== "") {
+      const n = Number(body.price);
+      if (Number.isNaN(n) || n < 0) {
+        return NextResponse.json(
+          { error: "Price must be a number >= 0 or null" },
+          { status: 400 }
+        );
+      }
+      price = n;
+    } else if (body.price === null || body.price === "") {
+      price = null;
+    }
+
     if (!productName) {
       return NextResponse.json(
         { error: "Product name is required" },
@@ -153,6 +167,7 @@ export async function POST(req: NextRequest) {
       expiry,
       status: "OK",
       unit_type,
+      price,
       total: 0,
       created_at: createdAt,
     };

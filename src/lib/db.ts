@@ -155,6 +155,12 @@ function normalizeStore(parsed: Partial<StoreData> | null | undefined): StoreDat
       users: parsed.nextIds.users ?? 1,
     },
   };
+  // Legacy products may omit price — treat as null.
+  for (const prod of store.products) {
+    if (prod.price === undefined) {
+      prod.price = null;
+    }
+  }
   ensureLocations(store);
   return store;
 }

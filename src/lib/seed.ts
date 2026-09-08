@@ -64,6 +64,7 @@ export function seedStore(store: SeedableStore) {
       expiry,
       status,
       unit_type,
+      price: null,
       total,
       created_at: createdAt,
     };

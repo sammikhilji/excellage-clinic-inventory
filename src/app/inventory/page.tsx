@@ -13,6 +13,7 @@ type Product = {
   expiry: string | null;
   status: string;
   unit_type: string;
+  price: number | null;
   total: number;
   holdings: { location: string; qty: number }[];
 };
@@ -128,6 +129,16 @@ export default function InventoryPage() {
               <div className="mt-2 flex flex-wrap items-center gap-1.5">
                 <StatusBadge status={p.status} />
                 {p.expiry && <span className="text-[10px] text-slate-500">Exp {p.expiry}</span>}
+                {p.price != null && (
+                  <span className="text-[10px] font-medium text-slate-600">
+                    {p.price.toLocaleString(undefined, {
+                      style: "currency",
+                      currency: "AED",
+                      minimumFractionDigits: 0,
+                      maximumFractionDigits: 2,
+                    })}
+                  </span>
+                )}
               </div>
             </Link>
           </li>
