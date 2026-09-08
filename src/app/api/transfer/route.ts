@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getStore, persistStore, recalculateTotal, nowIso } from "@/lib/db";
-import { LOCATIONS, type Activity, type StockHolding } from "@/lib/types";
+import { ensureLocations, getStore, persistStore, recalculateTotal, nowIso } from "@/lib/db";
+import { type Activity, type StockHolding } from "@/lib/types";
 import { resolveBarcode } from "@/lib/barcodes";
 
 export const dynamic = "force-dynamic";
@@ -26,14 +26,6 @@ export async function POST(req: NextRequest) {
       username?: string;
     } = body;
 
-    if (
-      !fromLocation ||
-      !toLocation ||
-      !LOCATIONS.includes(fromLocation as (typeof LOCATIONS)[number]) ||
-      !LOCATIONS.includes(toLocation as (typeof LOCATIONS)[number])
-    ) {
-      return NextResponse.json({ error: "Invalid location" }, { status: 400 });
-    }
     if (fromLocation === toLocation) {
       return NextResponse.json(
         { error: "FROM and TO must be different" },
@@ -45,6 +37,15 @@ export async function POST(req: NextRequest) {
     }
 
     const store = await getStore();
+    ensureLocations(store);
+    if (
+      !fromLocation ||
+      !toLocation ||
+      !store.locations.includes(fromLocation) ||
+      !store.locations.includes(toLocation)
+    ) {
+      return NextResponse.json({ error: "Invalid location" }, { status: 400 });
+    }
     let product = productId
       ? store.products.find((p) => p.id === productId)
       : undefined;
@@ -76,7 +77,7 @@ export async function POST(req: NextRequest) {
       fromHolding = {
         id: store.nextIds.stock++,
         product_id: product.id,
-        location: fromLocation as StockHolding["location"],
+        location: fromLocation,
         qty: 0,
       };
       store.stock.push(fromHolding);
@@ -91,7 +92,7 @@ export async function POST(req: NextRequest) {
       toHolding = {
         id: store.nextIds.stock++,
         product_id: product.id,
-        location: toLocation as StockHolding["location"],
+        location: toLocation,
         qty: absQty,
       };
       store.stock.push(toHolding);

@@ -4,7 +4,7 @@ import { createClient, type Client } from "@libsql/client";
 import { seedStore } from "./seed";
 import { buildSeedUsers, SEED_USER_DEFS } from "./seed-users";
 import { hashPassword } from "./passwords";
-import type { Activity, Product, StockHolding, User } from "./types";
+import { LOCATIONS, type Activity, type Product, type StockHolding, type User } from "./types";
 
 const DATA_DIR = path.join(process.cwd(), "data");
 const STORE_PATH = path.join(DATA_DIR, "store.json");
@@ -15,6 +15,8 @@ export interface StoreData {
   stock: StockHolding[];
   activity: Activity[];
   users: User[];
+  /** Editable clinic locations (defaults to LOCATIONS). */
+  locations: string[];
   nextIds: {
     products: number;
     stock: number;
@@ -33,6 +35,7 @@ function emptyStore(): StoreData {
     stock: [],
     activity: [],
     users: [],
+    locations: [...LOCATIONS],
     nextIds: { products: 1, stock: 1, activity: 1, users: 1 },
   };
 }
@@ -100,6 +103,38 @@ function ensureUsersSeeded(store: StoreData): boolean {
   return changed;
 }
 
+
+/** Ensure store.locations exists and includes every location used in stock/activity. */
+export function ensureLocations(store: StoreData): boolean {
+  let changed = false;
+  if (!Array.isArray(store.locations) || store.locations.length === 0) {
+    store.locations = [...LOCATIONS];
+    changed = true;
+  }
+  const set = new Set(store.locations);
+  const add = (loc: string | null | undefined) => {
+    const name = (loc || "").trim();
+    if (!name || set.has(name)) return;
+    store.locations.push(name);
+    set.add(name);
+    changed = true;
+  };
+  for (const s of store.stock) {
+    add(s.location);
+  }
+  for (const a of store.activity) {
+    const loc = a.location || "";
+    if (loc.includes(" → ")) {
+      const [from, to] = loc.split(" → ");
+      add(from);
+      add(to);
+    } else {
+      add(loc);
+    }
+  }
+  return changed;
+}
+
 function normalizeStore(parsed: Partial<StoreData> | null | undefined): StoreData {
   if (!parsed?.products || !parsed?.stock || !parsed?.activity || !parsed?.nextIds) {
     return emptyStore();
@@ -109,6 +144,10 @@ function normalizeStore(parsed: Partial<StoreData> | null | undefined): StoreDat
     stock: parsed.stock,
     activity: parsed.activity,
     users: Array.isArray(parsed.users) ? parsed.users : [],
+    locations:
+      Array.isArray(parsed.locations) && parsed.locations.length > 0
+        ? parsed.locations.map(String)
+        : [...LOCATIONS],
     nextIds: {
       products: parsed.nextIds.products ?? 1,
       stock: parsed.nextIds.stock ?? 1,
@@ -116,6 +155,7 @@ function normalizeStore(parsed: Partial<StoreData> | null | undefined): StoreDat
       users: parsed.nextIds.users ?? 1,
     },
   };
+  ensureLocations(store);
   return store;
 }
 
@@ -229,6 +269,9 @@ export async function getStore(): Promise<StoreData> {
         dirty = true;
       }
       if (ensureUsersSeeded(store)) {
+        dirty = true;
+      }
+      if (ensureLocations(store)) {
         dirty = true;
       }
       if (dirty) {

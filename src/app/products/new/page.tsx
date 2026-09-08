@@ -10,6 +10,7 @@ export default function NewProductPage() {
   const { user } = useAuth();
   const router = useRouter();
   const [categories, setCategories] = useState<string[]>([]);
+  const [locations, setLocations] = useState<string[]>([...LOCATIONS]);
   const [product, setProduct] = useState("");
   const [category, setCategory] = useState("");
   const [customCategory, setCustomCategory] = useState("");
@@ -29,6 +30,19 @@ export default function NewProductPage() {
       .then((r) => r.json())
       .then((d) => setCategories(d.categories || []))
       .catch(() => {});
+    fetch("/api/settings")
+      .then((r) => r.json())
+      .then((d) => {
+        if (Array.isArray(d.locations) && d.locations.length) {
+          setLocations(d.locations);
+          if (!d.locations.includes(location)) setLocation(d.locations[0]);
+        }
+        if (Array.isArray(d.categories) && d.categories.length && !categories.length) {
+          setCategories(d.categories);
+        }
+      })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function onSubmit(e: React.FormEvent) {
@@ -225,7 +239,7 @@ export default function NewProductPage() {
               value={location}
               onChange={(e) => setLocation(e.target.value)}
             >
-              {LOCATIONS.map((l) => (
+              {locations.map((l) => (
                 <option key={l} value={l}>
                   {l}
                 </option>

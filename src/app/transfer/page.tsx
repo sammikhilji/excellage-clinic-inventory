@@ -25,6 +25,7 @@ function TransferInner() {
   const [product, setProduct] = useState<ProductInfo | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [scanning, setScanning] = useState(true);
+  const [locations, setLocations] = useState<string[]>([...LOCATIONS]);
   const [fromLocation, setFromLocation] = useState<string>("Main Store");
   const [toLocation, setToLocation] = useState<string>("Dr. Ahmad");
   const [qty, setQty] = useState("1");
@@ -54,6 +55,23 @@ function TransferInner() {
       setMsg("Failed to load product");
     }
   }
+
+
+  useEffect(() => {
+    fetch("/api/settings")
+      .then((r) => r.json())
+      .then((d) => {
+        if (Array.isArray(d.locations) && d.locations.length) {
+          setLocations(d.locations);
+          if (!d.locations.includes(fromLocation)) setFromLocation(d.locations[0]);
+          if (!d.locations.includes(toLocation)) {
+            setToLocation(d.locations[1] || d.locations[0]);
+          }
+        }
+      })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     const b = sp.get("barcode");
@@ -152,7 +170,7 @@ function TransferInner() {
                 value={fromLocation}
                 onChange={(e) => setFromLocation(e.target.value)}
               >
-                {LOCATIONS.map((l) => (
+                {locations.map((l) => (
                   <option key={l} value={l}>
                     {l}
                   </option>
@@ -166,7 +184,7 @@ function TransferInner() {
                 value={toLocation}
                 onChange={(e) => setToLocation(e.target.value)}
               >
-                {LOCATIONS.map((l) => (
+                {locations.map((l) => (
                   <option key={l} value={l}>
                     {l}
                   </option>

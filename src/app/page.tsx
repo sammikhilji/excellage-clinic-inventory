@@ -10,6 +10,8 @@ import { REPORT_ALLOWED_ROLES } from "@/lib/monthly-staff-report-types";
 export default function DashboardPage() {
   const { user } = useAuth();
   const canReport = !!user && REPORT_ALLOWED_ROLES.includes(user.role);
+  const canEditSettings =
+    !!user && ["admin", "manager", "head_nurse"].includes(user.role);
   const [data, setData] = useState<DashboardData | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
@@ -147,6 +149,11 @@ export default function DashboardPage() {
         <Link href="/products/new" className="btn-secondary w-full text-sm">
           🆕 Add new product
         </Link>
+        {canEditSettings && (
+          <Link href="/settings" className="btn-secondary w-full text-sm">
+            ⚙️ Settings
+          </Link>
+        )}
         {canReport && (
           <Link href="/reports" className="btn-secondary w-full text-sm">
             📊 Monthly staff report

@@ -6,7 +6,8 @@ export const LOCATIONS = [
   "Dr. Sassani",
 ] as const;
 
-export type Location = (typeof LOCATIONS)[number];
+/** Dynamic location name; defaults come from LOCATIONS. */
+export type Location = string;
 
 /** Preset unit options; products may also store a custom unit string. */
 export const UNIT_OPTIONS = [

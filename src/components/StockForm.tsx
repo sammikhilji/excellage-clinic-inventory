@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { LOCATIONS, formatUnitLabel } from "@/lib/types";
 import StatusBadge from "./StatusBadge";
 import { useAuth } from "./AuthGate";
@@ -27,6 +27,7 @@ type Props = {
 
 export default function StockForm({ mode, product, onDone, onCancel }: Props) {
   const { user } = useAuth();
+  const [locations, setLocations] = useState<string[]>([...LOCATIONS]);
   const [location, setLocation] = useState<string>("Main Store");
   const [qty, setQty] = useState("1");
   const [note, setNote] = useState("");
@@ -39,6 +40,22 @@ export default function StockForm({ mode, product, onDone, onCancel }: Props) {
 
   const type = mode === "receive" ? "receive" : txnType;
   const unit = formatUnitLabel(product.unit_type);
+
+  useEffect(() => {
+    fetch("/api/settings")
+      .then((r) => r.json())
+      .then((d) => {
+        if (Array.isArray(d.locations) && d.locations.length) {
+          setLocations(d.locations);
+          if (!d.locations.includes(location)) {
+            setLocation(d.locations[0]);
+          }
+        }
+      })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -125,7 +142,7 @@ export default function StockForm({ mode, product, onDone, onCancel }: Props) {
         <div>
           <label className="label">Location</label>
           <select className="input" value={location} onChange={(e) => setLocation(e.target.value)}>
-            {LOCATIONS.map((l) => (
+            {locations.map((l) => (
               <option key={l} value={l}>
                 {l}
               </option>

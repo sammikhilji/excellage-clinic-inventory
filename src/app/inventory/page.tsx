@@ -21,11 +21,24 @@ export default function InventoryPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
   const [statuses, setStatuses] = useState<string[]>([]);
+  const [locations, setLocations] = useState<string[]>([...LOCATIONS]);
   const [q, setQ] = useState("");
   const [category, setCategory] = useState("");
   const [location, setLocation] = useState("");
   const [status, setStatus] = useState("");
   const [loading, setLoading] = useState(true);
+
+
+  useEffect(() => {
+    fetch("/api/settings")
+      .then((r) => r.json())
+      .then((d) => {
+        if (Array.isArray(d.locations) && d.locations.length) {
+          setLocations(d.locations);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     const params = new URLSearchParams();
@@ -77,7 +90,7 @@ export default function InventoryPage() {
         </select>
         <select className="input py-2.5 text-sm" value={location} onChange={(e) => setLocation(e.target.value)}>
           <option value="">All locations</option>
-          {LOCATIONS.map((l) => (
+          {locations.map((l) => (
             <option key={l} value={l}>
               {l}
             </option>

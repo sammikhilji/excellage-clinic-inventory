@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getStore, persistStore, recalculateTotal, nowIso } from "@/lib/db";
+import { ensureLocations, getStore, persistStore, recalculateTotal, nowIso } from "@/lib/db";
 import {
-  LOCATIONS,
   type Activity,
   type Product,
   type StockHolding,
@@ -116,9 +115,8 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
-    if (
-      !LOCATIONS.includes(location as (typeof LOCATIONS)[number])
-    ) {
+    ensureLocations(store);
+    if (!store.locations.includes(location)) {
       return NextResponse.json({ error: "Invalid location" }, { status: 400 });
     }
     if (
@@ -165,7 +163,7 @@ export async function POST(req: NextRequest) {
       const holding: StockHolding = {
         id: store.nextIds.stock++,
         product_id: productId,
-        location: location as StockHolding["location"],
+        location,
         qty,
       };
       store.stock.push(holding);

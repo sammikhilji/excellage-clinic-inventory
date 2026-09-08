@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getStore, persistStore, recalculateTotal, nowIso } from "@/lib/db";
-import { LOCATIONS, type Activity, type StockHolding } from "@/lib/types";
+import { ensureLocations, getStore, persistStore, recalculateTotal, nowIso } from "@/lib/db";
+import { type Activity, type StockHolding } from "@/lib/types";
 import { resolveBarcode } from "@/lib/barcodes";
 
 export const dynamic = "force-dynamic";
@@ -26,9 +26,6 @@ export async function POST(req: NextRequest) {
       username?: string;
     } = body;
 
-    if (!location || !LOCATIONS.includes(location as (typeof LOCATIONS)[number])) {
-      return NextResponse.json({ error: "Invalid location" }, { status: 400 });
-    }
     if (typeof qty !== "number" || Number.isNaN(qty) || qty === 0) {
       return NextResponse.json({ error: "Invalid quantity" }, { status: 400 });
     }
@@ -37,6 +34,10 @@ export async function POST(req: NextRequest) {
     }
 
     const store = await getStore();
+    ensureLocations(store);
+    if (!location || !store.locations.includes(location)) {
+      return NextResponse.json({ error: "Invalid location" }, { status: 400 });
+    }
     let product = productId
       ? store.products.find((p) => p.id === productId)
       : undefined;
@@ -76,7 +77,7 @@ export async function POST(req: NextRequest) {
       holding = {
         id: store.nextIds.stock++,
         product_id: product.id,
-        location: location as StockHolding["location"],
+        location,
         qty: Math.max(0, newQty),
       };
       store.stock.push(holding);
