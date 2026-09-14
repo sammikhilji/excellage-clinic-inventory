@@ -4,6 +4,7 @@ export const LOCATIONS = [
   "Dr. Saly",
   "Dr. Niveen",
   "Dr. Sassani",
+  "Crash Cart Medication",
 ] as const;
 
 /** Dynamic location name; defaults come from LOCATIONS. */
