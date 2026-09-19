@@ -116,7 +116,12 @@ export interface ProductWithStock extends Product {
 
 export interface DashboardData {
   totalProducts: number;
+  /** Stocking units (transducers counted as lines ÷ 2400). */
   totalQty: number;
+  /** Optional: raw stored quantity sum (transducer lines not converted). */
+  totalQtyRaw?: number;
+  /** Sum of (price ?? 0) × stored qty across products (AED). */
+  totalStockValue: number;
   expiryAlerts: Product[];
   stockByLocation: { location: string; qty: number }[];
   recentActivity: Activity[];

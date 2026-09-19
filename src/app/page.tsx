@@ -57,6 +57,20 @@ export default function DashboardPage() {
         <div className="card p-4">
           <p className="text-xs text-slate-500">Total qty</p>
           <p className="text-2xl font-bold">{Number(data.totalQty).toFixed(1)}</p>
+          <p className="mt-1 text-[10px] leading-tight text-slate-400">
+            Transducers: 1 unit = 2400 lines
+          </p>
+        </div>
+        <div className="card col-span-2 p-4">
+          <p className="text-xs text-slate-500">Total stock value</p>
+          <p className="text-2xl font-bold">
+            {Number(data.totalStockValue ?? 0).toLocaleString(undefined, {
+              style: "currency",
+              currency: "AED",
+              minimumFractionDigits: 0,
+              maximumFractionDigits: 2,
+            })}
+          </p>
         </div>
       </div>
 
