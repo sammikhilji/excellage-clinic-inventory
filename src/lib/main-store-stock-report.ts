@@ -4,6 +4,7 @@
  */
 import type { StoreData } from "./db";
 import { getStockGroup } from "./stock-groups";
+import { stockValue } from "./stock-metrics";
 import seedPrev from "../data/main-store-prev-seed-2026-09-17.json";
 
 export const MAIN_LOCS = [
@@ -36,6 +37,10 @@ export type MainStoreSku = {
   niveen: number;
   sassani: number;
   total: number;
+  /** Unit price AED from live product match (or name lookup for master-only OOS). */
+  unit_price: number;
+  /** Stock value AED: stockValue(price, rawQty) when raw holdings exist; else price × total. */
+  total_value: number;
   prev_main: number;
   prev_ahmad: number;
   prev_saly: number;
@@ -75,6 +80,8 @@ export type MainStoreReport = {
   units_prev: number;
   used_total: number;
   receipt_total: number;
+  /** Sum of total_value for non-transducer (aesthetic) rows, AED. */
+  total_value: number;
   sku_n: number;
   in_stock: number;
   oos: number;
@@ -246,6 +253,10 @@ export function livePivot(
   product: string;
   category: string;
   expiry: string;
+  /** Unit price from matched product (AED). */
+  price: number;
+  /** Raw stored qty across locations (transducer lines unconverted). */
+  raw_qty: number;
   main: number;
   ahmad: number;
   saly: number;
@@ -256,7 +267,7 @@ export function livePivot(
   const categoryFilter = normalizeFilterValue(opts?.category).toLowerCase();
   const byId = new Map(store.products.map((p) => [p.id, p]));
   const map = new Map<string, ReturnType<typeof emptyLoc> & {
-    product: string; category: string; expiry: string;
+    product: string; category: string; expiry: string; price: number; raw_qty: number;
   }>();
 
   for (const h of store.stock) {
@@ -284,13 +295,19 @@ export function livePivot(
         product: p.product,
         category: p.category,
         expiry: p.expiry || "",
+        price: p.price ?? 0,
+        raw_qty: 0,
         ...emptyLoc(),
       };
       map.set(key, row);
     }
     const k = LOC_KEY[loc as keyof typeof LOC_KEY];
-    row[k] += Number(h.qty) || 0;
+    const q = Number(h.qty) || 0;
+    row[k] += q;
+    row.raw_qty += q;
     if (p.expiry) row.expiry = p.expiry;
+    // Prefer non-null price if a later holding matches a product with price set
+    if (p.price != null) row.price = p.price;
   }
   return map;
 }
@@ -302,6 +319,44 @@ function normalizeOpts(
     return { to: asOfOrOpts ?? null, from: null };
   }
   return asOfOrOpts;
+}
+
+
+/** Look up unit price by product name in store.products (alnum + aliases). */
+function lookupUnitPrice(store: StoreData, productName: string): number {
+  const key = ALIASES[alnum(productName)] || alnum(productName);
+  for (const p of store.products) {
+    const pk = ALIASES[alnum(p.product)] || alnum(p.product);
+    if (pk === key) return p.price ?? 0;
+  }
+  // Fuzzy contains match (same spirit as live↔prev merge)
+  for (const p of store.products) {
+    const pk = alnum(p.product);
+    if (pk.includes(key) || key.includes(pk)) return p.price ?? 0;
+  }
+  return 0;
+}
+
+/**
+ * Row value in AED.
+ * Prefer stockValue(price, rawQty) from live holdings; otherwise price × total
+ * for non-transducers; transducers use price × raw lines when available.
+ */
+function computeRowValue(opts: {
+  unit_price: number;
+  total: number;
+  is_transducer: boolean;
+  raw_qty: number | null;
+}): number {
+  const price = opts.unit_price ?? 0;
+  if (opts.raw_qty != null) {
+    return stockValue(price, opts.raw_qty);
+  }
+  if (opts.is_transducer) {
+    // No live raw lines — fall back to reported total (prev lines when keepPrevQty)
+    return stockValue(price, opts.total);
+  }
+  return (price ?? 0) * opts.total;
 }
 
 export function buildMainStoreReport(
@@ -367,6 +422,15 @@ export function buildMainStoreReport(
     const expiry = (now?.expiry && /^[A-Za-z]{3}-\d{2}$/.test(now.expiry) ? now.expiry : prev.expiry) || "—";
     const prev_total = prev.total ?? (prev.main + prev.ahmad + prev.saly + prev.niveen + prev.sassani);
 
+    const unit_price = now != null ? (now.price ?? 0) : lookupUnitPrice(store, prev.product);
+    const raw_qty = now != null ? now.raw_qty : (keepPrevQty ? total : null);
+    const total_value = computeRowValue({
+      unit_price,
+      total,
+      is_transducer: is_t,
+      raw_qty,
+    });
+
     rows.push({
       product: prev.product,
       category: shortCat,
@@ -375,6 +439,8 @@ export function buildMainStoreReport(
       status: computeReportStatus(expiry, snap),
       ...locs,
       total,
+      unit_price,
+      total_value,
       prev_main: prev.main,
       prev_ahmad: prev.ahmad,
       prev_saly: prev.saly,
@@ -397,6 +463,14 @@ export function buildMainStoreReport(
     if (groupOpt === "crash_cart" && g !== "crash_cart") continue;
     const total = now.main + now.ahmad + now.saly + now.niveen + now.sassani;
     new_skus.push(now.product);
+    const is_t = isTransducerSku(now.category, now.product);
+    const unit_price = now.price ?? 0;
+    const total_value = computeRowValue({
+      unit_price,
+      total,
+      is_transducer: is_t,
+      raw_qty: now.raw_qty,
+    });
     rows.push({
       product: now.product,
       category: now.category,
@@ -405,9 +479,11 @@ export function buildMainStoreReport(
       status: computeReportStatus(now.expiry, snap),
       main: now.main, ahmad: now.ahmad, saly: now.saly, niveen: now.niveen, sassani: now.sassani,
       total,
+      unit_price,
+      total_value,
       prev_main: 0, prev_ahmad: 0, prev_saly: 0, prev_niveen: 0, prev_sassani: 0, prev_total: 0,
       used: 0, receipt: total,
-      is_transducer: isTransducerSku(now.category, now.product),
+      is_transducer: is_t,
     });
   }
 
@@ -430,6 +506,7 @@ export function buildMainStoreReport(
   const units_prev = nonT.reduce((s, r) => s + r.prev_total, 0);
   const used_total = nonT.reduce((s, r) => s + r.used, 0);
   const receipt_total = nonT.reduce((s, r) => s + r.receipt, 0);
+  const total_value = nonT.reduce((s, r) => s + r.total_value, 0);
 
   return {
     snapshot_date,
@@ -442,6 +519,7 @@ export function buildMainStoreReport(
     units_prev,
     used_total,
     receipt_total,
+    total_value,
     sku_n: filtered.length,
     in_stock: filtered.filter((r) => r.total > 0).length,
     oos: filtered.filter((r) => r.total <= 0).length,
@@ -470,7 +548,8 @@ export function snapshotFromReport(report: MainStoreReport): MainStoreSnapshot {
 
 export function mainStoreReportToCsv(report: MainStoreReport): string {
   const headers = [
-    "category","product","expiry","status","total","main","ahmad","saly","niveen","sassani",
+    "category","product","expiry","status","total","unit_price","total_value",
+    "main","ahmad","saly","niveen","sassani",
     "prev_total","used","receipt",
   ];
   const esc = (v: string | number) => {
@@ -481,6 +560,7 @@ export function mainStoreReportToCsv(report: MainStoreReport): string {
   for (const r of report.rows) {
     lines.push([
       r.category_long, r.product, r.expiry, r.status, r.total,
+      r.unit_price, r.total_value,
       r.main, r.ahmad, r.saly, r.niveen, r.sassani,
       r.prev_total, r.used, r.receipt,
     ].map(esc).join(","));
@@ -519,6 +599,7 @@ export async function mainStoreReportToXlsx(
     ["Units prev (excl. transducers)", report.units_prev],
     ["Used total", report.used_total],
     ["Receipt total", report.receipt_total],
+    ["Total value AED (excl. transducers)", report.total_value],
   ];
   for (const [field, value] of metaRows) {
     meta.addRow({ field, value });
@@ -540,6 +621,8 @@ export async function mainStoreReportToXlsx(
     { header: "Expiry", key: "expiry", width: 10 },
     { header: "Status", key: "status", width: 18 },
     { header: "Total", key: "total", width: 10 },
+    { header: "Price", key: "unit_price", width: 12 },
+    { header: "Value", key: "total_value", width: 14 },
     { header: "Main", key: "main", width: 10 },
     { header: "Ahmad", key: "ahmad", width: 10 },
     { header: "Saly", key: "saly", width: 10 },
@@ -566,6 +649,8 @@ export async function mainStoreReportToXlsx(
       expiry: r.expiry,
       status: r.status,
       total: r.total,
+      unit_price: r.unit_price,
+      total_value: r.total_value,
       main: r.main,
       ahmad: r.ahmad,
       saly: r.saly,
@@ -583,6 +668,8 @@ export async function mainStoreReportToXlsx(
     }
     for (const k of [
       "total",
+      "unit_price",
+      "total_value",
       "main",
       "ahmad",
       "saly",
@@ -593,6 +680,8 @@ export async function mainStoreReportToXlsx(
     ] as const) {
       row.getCell(k).alignment = { horizontal: "right" };
     }
+    row.getCell("unit_price").numFmt = "#,##0.00";
+    row.getCell("total_value").numFmt = "#,##0.00";
   }
 
   const buf = await wb.xlsx.writeBuffer();

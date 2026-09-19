@@ -48,6 +48,21 @@ function safe(s: string) {
   return toWinAnsi(s || "");
 }
 
+function fmtMoney(n: number): string {
+  return n.toLocaleString("en-AE", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  });
+}
+
+function fmtPrice(n: number): string {
+  if (!n) return "—";
+  return n.toLocaleString("en-AE", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  });
+}
+
 function drawHeaderFooter(ctx: Ctx) {
   const { page, font, fontBold, report, pageNum } = ctx;
   page.drawRectangle({ x: 0, y: PAGE_H - HEADER_H, width: PAGE_W, height: HEADER_H, color: PURPLE });
@@ -108,10 +123,17 @@ function drawKpis(
     const x = MX + i * (w + gap);
     ctx.page.drawRectangle({ x, y: y - h, width: w, height: h, color: rgb(0.98, 0.98, 0.99), borderColor: ROW_LINE, borderWidth: 0.5 });
     ctx.page.drawRectangle({ x, y: y - 4, width: w, height: 4, color: it.band });
-    const vw = ctx.fontBold.widthOfTextAtSize(safe(it.value), 14);
-    drawText(ctx, it.value, x + (w - vw) / 2, y - 24, 14, { bold: true, color: it.color });
-    const lw = ctx.font.widthOfTextAtSize(safe(it.label.toUpperCase()), 6);
-    drawText(ctx, it.label.toUpperCase(), x + (w - lw) / 2, y - 38, 6, { color: MUTED });
+    const valueSize = n >= 7 ? 11 : 14;
+    const labelSize = n >= 7 ? 5.5 : 6;
+    let vs = valueSize;
+    let vw = ctx.fontBold.widthOfTextAtSize(safe(it.value), vs);
+    while (vs > 8 && vw > w - 6) {
+      vs -= 0.5;
+      vw = ctx.fontBold.widthOfTextAtSize(safe(it.value), vs);
+    }
+    drawText(ctx, it.value, x + (w - vw) / 2, y - 24, vs, { bold: true, color: it.color });
+    const lw = ctx.font.widthOfTextAtSize(safe(it.label.toUpperCase()), labelSize);
+    drawText(ctx, it.label.toUpperCase(), x + Math.max(2, (w - lw) / 2), y - 38, labelSize, { color: MUTED, maxW: w - 4 });
   });
   return y - h - 8;
 }
@@ -290,6 +312,7 @@ export async function mainStoreReportToPdf(report: MainStoreReport): Promise<Uin
     { value: String(expired_n), label: "Expired", color: RED, band: rgb(0.99, 0.65, 0.65) },
     { value: String(this_mo), label: "Expires this month", color: rgb(0.88, 0.11, 0.28), band: rgb(0.99, 0.8, 0.83) },
     { value: String(d90), label: "Expiring ≤90 days", color: AMBER, band: rgb(0.99, 0.91, 0.54) },
+    { value: fmtMoney(report.total_value), label: "Total value (AED)", color: GREEN, band: rgb(0.53, 0.94, 0.67) },
   ], PAGE_H - HEADER_H - 48);
 
   const locVals = [
@@ -542,11 +565,12 @@ export async function mainStoreReportToPdf(report: MainStoreReport): Promise<Uin
       ? `FULL INVENTORY · injectables through threads · ${report.sku_n} SKU lines`
       : "FULL INVENTORY · continued";
     y = drawBanner(ctx, title, PAGE_H - HEADER_H - 14);
-    const icols = [95, 175, 42, 85, 36, 36, 36, 36, 42, 42];
-    const ilabels = ["CATEGORY", "PRODUCT", "EXPIRY", "STATUS", "TOTAL", "MAIN", "AHMAD", "SALY", "NIVEEN", "SASSANI"];
+    // Category | Product | Expiry | Status | Total | Price | Value | Main | Ahmad | Saly | Niveen | Sassani
+    const icols = [78, 148, 34, 68, 30, 40, 48, 32, 32, 32, 34, 36];
+    const ilabels = ["CATEGORY", "PRODUCT", "EXPIRY", "STATUS", "TOTAL", "PRICE", "VALUE", "MAIN", "AHMAD", "SALY", "NIVEEN", "SASSANI"];
     x = MX;
     ctx.page.drawRectangle({ x: MX, y: y - 11, width: PAGE_W - 2 * MX, height: 13, color: PURPLE });
-    ilabels.forEach((lab, i) => { drawText(ctx, lab, x + 1, y - 8, 6, { bold: true, color: WHITE }); x += icols[i]; });
+    ilabels.forEach((lab, i) => { drawText(ctx, lab, x + 1, y - 8, 5.5, { bold: true, color: WHITE }); x += icols[i]; });
     y -= 12;
     const chunk = inv.slice(p * perPage, (p + 1) * perPage);
     for (let i = 0; i < chunk.length; i++) {
@@ -557,10 +581,14 @@ export async function mainStoreReportToPdf(report: MainStoreReport): Promise<Uin
         : r.status === "Expiring ≤90 days" ? AMBER_SOFT
         : i % 2 === 1 ? PURPLE_SOFT : WHITE;
       if (bg !== WHITE) ctx.page.drawRectangle({ x: MX, y: y - 2, width: PAGE_W - 2 * MX, height: 10, color: bg });
-      const vals = [r.category, r.product, r.expiry, r.status, fmtQty(r.total), fmtQty(r.main), fmtQty(r.ahmad), fmtQty(r.saly), fmtQty(r.niveen), fmtQty(r.sassani)];
+      const vals = [
+        r.category, r.product, r.expiry, r.status, fmtQty(r.total),
+        fmtPrice(r.unit_price), r.unit_price ? fmtMoney(r.total_value) : (r.total_value ? fmtMoney(r.total_value) : "—"),
+        fmtQty(r.main), fmtQty(r.ahmad), fmtQty(r.saly), fmtQty(r.niveen), fmtQty(r.sassani),
+      ];
       x = MX;
       vals.forEach((v, j) => {
-        drawText(ctx, v, x + 1, y, 6, {
+        drawText(ctx, v, x + 1, y, 5.5, {
           bold: j === 3 && (r.status === "Expired" || r.status === "Expires this month"),
           color: j === 3 && (r.status === "Expired" || r.status === "Expires this month") ? RED : TEXT,
           maxW: icols[j] - 2,
