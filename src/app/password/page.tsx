@@ -152,6 +152,21 @@ export default function PasswordPage() {
       </form>
 
       {user.role === "admin" && (
+        <div className="rounded-xl border border-brand-200 bg-brand-50 px-3 py-3 text-sm">
+          <p className="font-semibold text-brand-800">Add or remove staff</p>
+          <p className="mt-1 text-xs text-brand-700">
+            Create users and generate temporary passwords in Settings.
+          </p>
+          <Link
+            href="/settings"
+            className="mt-2 inline-block text-xs font-semibold text-brand-700 underline"
+          >
+            Open Settings → Staff users
+          </Link>
+        </div>
+      )}
+
+      {user.role === "admin" && (
         <form onSubmit={onAdminReset} className="card space-y-3 p-4">
           <h3 className="font-semibold">Admin — reset a staff password</h3>
           <label className="block text-sm">

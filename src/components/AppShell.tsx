@@ -9,8 +9,7 @@ import { REPORT_ALLOWED_ROLES } from "@/lib/monthly-staff-report-types";
 function Header() {
   const { loggedIn, user, logout } = useAuth();
   const canReport = !!user && REPORT_ALLOWED_ROLES.includes(user.role);
-  const canEditSettings =
-    !!user && ["admin", "manager", "head_nurse"].includes(user.role);
+  const canEditSettings = !!user && user.role === "admin";
   return (
     <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/95 backdrop-blur">
       <div className="mx-auto flex max-w-lg items-center justify-between px-4 py-3">

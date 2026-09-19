@@ -56,8 +56,7 @@ function fallbackGroups(data: DashboardData): Record<StockGroupKey, StockGroupSu
 export default function DashboardPage() {
   const { user } = useAuth();
   const canReport = !!user && REPORT_ALLOWED_ROLES.includes(user.role);
-  const canEditSettings =
-    !!user && ["admin", "manager", "head_nurse"].includes(user.role);
+  const canEditSettings = !!user && user.role === "admin";
   const [data, setData] = useState<DashboardData | null>(null);
   const [err, setErr] = useState<string | null>(null);
 

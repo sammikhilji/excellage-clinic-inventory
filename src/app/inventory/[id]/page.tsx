@@ -60,6 +60,7 @@ export default function ProductDetailPage() {
   const [showAliasScan, setShowAliasScan] = useState(false);
 
   const canEdit = !!user && CAN_EDIT.has(user.role);
+  const canDelete = !!user && user.role === "admin";
 
   function load() {
     return fetch(`/api/products/${id}`)
@@ -468,14 +469,16 @@ export default function ProductDetailPage() {
             </form>
           ) : null}
 
-          <button
-            type="button"
-            className="btn-danger w-full text-sm"
-            disabled={busy}
-            onClick={() => void deleteProduct()}
-          >
-            Delete product
-          </button>
+          {canDelete && (
+            <button
+              type="button"
+              className="btn-danger w-full text-sm"
+              disabled={busy}
+              onClick={() => void deleteProduct()}
+            >
+              Delete product
+            </button>
+          )}
           {msg && (
             <p
               className={`text-sm ${msg === "Saved" ? "text-emerald-700" : "text-rose-600"}`}

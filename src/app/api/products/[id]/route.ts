@@ -193,12 +193,24 @@ export async function PATCH(
   }
 }
 
+async function requireAdmin(req: NextRequest) {
+  const usernameCookie = req.cookies.get("clinic_user")?.value?.toLowerCase();
+  if (!usernameCookie) return { error: "Not logged in", status: 401 as const };
+  const store = await getStore();
+  const me = store.users.find((u) => u.username === usernameCookie);
+  if (!me) return { error: "Not logged in", status: 401 as const };
+  if (me.role !== "admin") {
+    return { error: "Admin only (Mohamed).", status: 403 as const };
+  }
+  return { store, me };
+}
+
 export async function DELETE(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const auth = await requireEditor(req);
+    const auth = await requireAdmin(req);
     if ("error" in auth) {
       return NextResponse.json({ error: auth.error }, { status: auth.status });
     }

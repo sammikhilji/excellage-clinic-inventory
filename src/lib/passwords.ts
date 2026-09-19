@@ -22,3 +22,42 @@ export function verifyPassword(password: string, stored: string): boolean {
     return false;
   }
 }
+
+/** Readable Word+digits+symbol passwords (~10–12 chars), similar to seed style. */
+const PASSWORD_WORDS = [
+  "Harbor",
+  "Lantern",
+  "Meadow",
+  "Cascade",
+  "Blossom",
+  "Summit",
+  "Orchard",
+  "Whisper",
+  "Horizon",
+  "Willow",
+  "Coral",
+  "River",
+  "Maple",
+  "Cedar",
+  "Amber",
+  "Silver",
+  "Crystal",
+  "Forest",
+  "Garden",
+  "Beacon",
+] as const;
+
+const PASSWORD_SYMBOLS = ["!", "#", "$", "%", "@", "*"] as const;
+
+function randomInt(max: number): number {
+  const buf = randomBytes(4);
+  return buf.readUInt32BE(0) % max;
+}
+
+/** Generate a temporary staff password: CapitalWord + 2 digits + symbol. */
+export function generatePassword(): string {
+  const word = PASSWORD_WORDS[randomInt(PASSWORD_WORDS.length)];
+  const digits = String(10 + randomInt(90)); // 10–99
+  const symbol = PASSWORD_SYMBOLS[randomInt(PASSWORD_SYMBOLS.length)];
+  return `${word}${digits}${symbol}`;
+}

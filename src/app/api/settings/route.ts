@@ -1,10 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ensureLocations, getStore, persistStore } from "@/lib/db";
-import type { UserRole } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
-
-const EDITOR_ROLES: UserRole[] = ["admin", "manager", "head_nurse"];
 
 function categoriesFromStore(store: Awaited<ReturnType<typeof getStore>>): string[] {
   return [...new Set(store.products.map((p) => p.category).filter(Boolean))].sort(
@@ -12,16 +9,16 @@ function categoriesFromStore(store: Awaited<ReturnType<typeof getStore>>): strin
   );
 }
 
-async function requireEditor(req: NextRequest) {
+async function requireAdmin(req: NextRequest) {
   const username = req.cookies.get("clinic_user")?.value?.toLowerCase();
   if (!username) return { error: NextResponse.json({ error: "Not logged in" }, { status: 401 }) };
   const store = await getStore();
   ensureLocations(store);
   const me = store.users.find((u) => u.username === username);
-  if (!me || !EDITOR_ROLES.includes(me.role)) {
+  if (!me || me.role !== "admin") {
     return {
       error: NextResponse.json(
-        { error: "Admin, manager, or head nurse only" },
+        { error: "Admin only (Mohamed)." },
         { status: 403 }
       ),
     };
@@ -29,10 +26,11 @@ async function requireEditor(req: NextRequest) {
   return { store, me };
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
-    const store = await getStore();
-    ensureLocations(store);
+    const auth = await requireAdmin(req);
+    if ("error" in auth && auth.error) return auth.error;
+    const store = auth.store!;
     return NextResponse.json({
       locations: store.locations.slice(),
       categories: categoriesFromStore(store),
@@ -58,7 +56,7 @@ function replaceLocationToken(text: string, from: string, to: string): string {
 
 export async function POST(req: NextRequest) {
   try {
-    const auth = await requireEditor(req);
+    const auth = await requireAdmin(req);
     if ("error" in auth && auth.error) return auth.error;
     const store = auth.store!;
 
