@@ -12,6 +12,7 @@ import {
   formatDateLabel,
   timeOnly,
 } from "@/lib/activity-display";
+import { stockValue } from "@/lib/stock-metrics";
 
 type Detail = {
   id: number;
@@ -233,6 +234,19 @@ export default function ProductDetailPage() {
             Price:{" "}
             <span className="font-semibold">
               {item.price.toLocaleString(undefined, {
+                style: "currency",
+                currency: "AED",
+                minimumFractionDigits: 0,
+                maximumFractionDigits: 2,
+              })}
+            </span>
+          </p>
+        )}
+        {item.price != null && (
+          <p className="text-sm text-slate-600">
+            Total stock value:{" "}
+            <span className="font-semibold">
+              {stockValue(item.price, item.total).toLocaleString(undefined, {
                 style: "currency",
                 currency: "AED",
                 minimumFractionDigits: 0,

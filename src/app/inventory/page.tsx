@@ -5,6 +5,7 @@ import Link from "next/link";
 import StatusBadge from "@/components/StatusBadge";
 import { LOCATIONS, formatUnitLabel } from "@/lib/types";
 import { getStockGroup, type StockGroup } from "@/lib/stock-groups";
+import { stockValue } from "@/lib/stock-metrics";
 
 type Product = {
   id: number;
@@ -171,6 +172,17 @@ export default function InventoryPage() {
                 {p.price != null && (
                   <span className="text-[10px] font-medium text-slate-600">
                     {p.price.toLocaleString(undefined, {
+                      style: "currency",
+                      currency: "AED",
+                      minimumFractionDigits: 0,
+                      maximumFractionDigits: 2,
+                    })}
+                  </span>
+                )}
+                {p.price != null && (
+                  <span className="text-[10px] font-medium text-slate-600">
+                    Value:{" "}
+                    {stockValue(p.price, p.total).toLocaleString(undefined, {
                       style: "currency",
                       currency: "AED",
                       minimumFractionDigits: 0,
