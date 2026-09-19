@@ -1,11 +1,16 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "@/components/AuthGate";
 import type { MonthlyStaffReport } from "@/lib/monthly-staff-report-types";
 import { REPORT_ALLOWED_ROLES } from "@/lib/monthly-staff-report-types";
 import { formatDateLabel, timeOnly } from "@/lib/activity-display";
+import {
+  getStockGroup,
+  STOCK_GROUP_LABELS,
+  type StockGroup,
+} from "@/lib/stock-groups";
 
 /** YYYY-MM-DD in Asia/Dubai (falls back to local if Intl fails). */
 function ymdInDubai(d = new Date()): string {
@@ -50,16 +55,41 @@ function triggerBlobDownload(blob: Blob, filename: string) {
   URL.revokeObjectURL(url);
 }
 
+type ReportFormat = "excel" | "pdf";
+type ScopeValue = "" | StockGroup;
+
+type GeneratedMeta = {
+  from: string;
+  to: string;
+  scope: ScopeValue;
+  category: string;
+  includeImports: boolean;
+  format: ReportFormat;
+};
+
+const SCOPE_OPTIONS: { value: ScopeValue; label: string }[] = [
+  { value: "", label: "All" },
+  { value: "products", label: "Products only" },
+  { value: "consumables", label: "Consumables only" },
+  { value: "crash_cart", label: "Crash Cart only" },
+];
+
 export default function ReportsPage() {
   const { user } = useAuth();
   const initial = useMemo(() => defaultDateRange(), []);
   const [from, setFrom] = useState(initial.from);
   const [to, setTo] = useState(initial.to);
+  const [scope, setScope] = useState<ScopeValue>("");
+  const [category, setCategory] = useState("");
+  const [allCategories, setAllCategories] = useState<string[]>([]);
+  const [categoryMeta, setCategoryMeta] = useState<
+    Record<string, StockGroup>
+  >({});
+  const [format, setFormat] = useState<ReportFormat>("excel");
+  const [includeImports, setIncludeImports] = useState(false);
   const [report, setReport] = useState<MonthlyStaffReport | null>(null);
-  const [generatedFrom, setGeneratedFrom] = useState<string | null>(null);
-  const [generatedTo, setGeneratedTo] = useState<string | null>(null);
+  const [generated, setGenerated] = useState<GeneratedMeta | null>(null);
   const [loading, setLoading] = useState(false);
-  const [downloading, setDownloading] = useState<"pdf" | "csv" | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
   const allowed =
@@ -67,55 +97,71 @@ export default function ReportsPage() {
 
   const rangeInvalid = !from || !to || from > to;
 
+  const filteredCategories = useMemo(() => {
+    if (!scope) return allCategories;
+    return allCategories.filter((c) => categoryMeta[c] === scope);
+  }, [allCategories, categoryMeta, scope]);
+
+  // Drop category if it no longer fits the selected scope
+  useEffect(() => {
+    if (category && !filteredCategories.includes(category)) {
+      setCategory("");
+    }
+  }, [category, filteredCategories]);
+
+  useEffect(() => {
+    if (!allowed) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/products", { credentials: "include" });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (cancelled) return;
+        const cats: string[] = Array.isArray(data.categories)
+          ? data.categories.filter(Boolean)
+          : [];
+        setAllCategories(cats);
+        const meta: Record<string, StockGroup> = {};
+        const products = Array.isArray(data.products) ? data.products : [];
+        for (const p of products) {
+          const cat = String(p.category || "").trim();
+          if (!cat || meta[cat]) continue;
+          meta[cat] = getStockGroup(p);
+        }
+        // Fallback: classify by category name alone
+        for (const c of cats) {
+          if (!meta[c]) meta[c] = getStockGroup({ category: c, product: "" });
+        }
+        setCategoryMeta(meta);
+      } catch {
+        /* ignore — category list is optional */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [allowed]);
+
   const reportReady =
     !!report &&
-    generatedFrom === from &&
-    generatedTo === to &&
+    !!generated &&
+    generated.from === from &&
+    generated.to === to &&
+    generated.scope === scope &&
+    generated.category === category &&
+    generated.includeImports === includeImports &&
     !rangeInvalid;
 
-  const load = useCallback(async () => {
-    if (!allowed) return;
-    if (!from || !to) {
-      setErr("Select From and To dates");
-      setReport(null);
-      setGeneratedFrom(null);
-      setGeneratedTo(null);
-      return;
-    }
-    if (from > to) {
-      setErr("From must be on or before To");
-      setReport(null);
-      setGeneratedFrom(null);
-      setGeneratedTo(null);
-      return;
-    }
-    setLoading(true);
-    setErr(null);
-    try {
-      const res = await fetch(
-        `/api/reports/monthly-staff?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
-        { credentials: "include" }
-      );
-      const data = await res.json();
-      if (!res.ok) {
-        setErr(data.error || "Failed to load report");
-        setReport(null);
-        setGeneratedFrom(null);
-        setGeneratedTo(null);
-        return;
-      }
-      setReport(data);
-      setGeneratedFrom(from);
-      setGeneratedTo(to);
-    } catch {
-      setErr("Failed to load report");
-      setReport(null);
-      setGeneratedFrom(null);
-      setGeneratedTo(null);
-    } finally {
-      setLoading(false);
-    }
-  }, [allowed, from, to]);
+  const buildQuery = useCallback(() => {
+    const q = new URLSearchParams();
+    q.set("from", from);
+    q.set("to", to);
+    if (scope) q.set("group", scope);
+    if (category) q.set("category", category);
+    if (includeImports) q.set("includeImports", "1");
+    return q.toString();
+  }, [from, to, scope, category, includeImports]);
 
   const setThisMonth = () => {
     const r = defaultDateRange();
@@ -123,65 +169,116 @@ export default function ReportsPage() {
     setTo(r.to);
   };
 
-  const downloadPdf = async () => {
-    if (!reportReady) return;
-    setDownloading("pdf");
-    setErr(null);
-    try {
-      const res = await fetch(
-        `/api/reports/monthly-staff.pdf?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
-        { credentials: "include" }
-      );
-      const ct = res.headers.get("content-type") || "";
-      if (ct.includes("application/pdf")) {
-        const blob = await res.blob();
-        triggerBlobDownload(blob, `staff-stock-${from}_to_${to}.pdf`);
-        return;
-      }
-      let message = "Download failed";
-      try {
-        const data = await res.json();
-        message = data.error || message;
-      } catch {
-        message = res.statusText || message;
-      }
-      setErr(`PDF download failed: ${message}`);
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : "Download failed";
-      setErr(`PDF download failed: ${msg}`);
-    } finally {
-      setDownloading(null);
+  const generateReport = async () => {
+    if (!allowed) return;
+    if (!from || !to) {
+      setErr("Select From and To dates");
+      setReport(null);
+      setGenerated(null);
+      return;
     }
-  };
+    if (from > to) {
+      setErr("From must be on or before To");
+      setReport(null);
+      setGenerated(null);
+      return;
+    }
+    if (format !== "excel" && format !== "pdf") {
+      setErr("Select Excel or PDF format");
+      return;
+    }
 
-  const downloadCsv = async () => {
-    if (!reportReady) return;
-    setDownloading("csv");
+    setLoading(true);
     setErr(null);
+    const qs = buildQuery();
+    const downloadPath =
+      format === "excel"
+        ? `/api/reports/monthly-staff.xlsx?${qs}`
+        : `/api/reports/monthly-staff.pdf?${qs}`;
+    const filename =
+      format === "excel"
+        ? `staff-stock-${from}_to_${to}.xlsx`
+        : `staff-stock-${from}_to_${to}.pdf`;
+
     try {
-      const res = await fetch(
-        `/api/reports/monthly-staff.csv?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
-        { credentials: "include" }
-      );
-      const ct = res.headers.get("content-type") || "";
-      if (ct.includes("text/csv") || (res.ok && !ct.includes("application/json"))) {
-        const blob = await res.blob();
-        triggerBlobDownload(blob, `staff-stock-${from}_to_${to}.csv`);
+      const [dlRes, jsonRes] = await Promise.all([
+        fetch(downloadPath, { credentials: "include" }),
+        fetch(`/api/reports/monthly-staff?${qs}`, { credentials: "include" }),
+      ]);
+
+      // Download first so failures are clear
+      const ct = dlRes.headers.get("content-type") || "";
+      const expectPdf = format === "pdf";
+      const expectXlsx = format === "excel";
+      const looksOk =
+        dlRes.ok &&
+        ((expectPdf && ct.includes("application/pdf")) ||
+          (expectXlsx &&
+            (ct.includes("spreadsheetml") ||
+              ct.includes("octet-stream") ||
+              ct.includes("application/vnd.openxmlformats"))));
+
+      if (!looksOk) {
+        let message = "Download failed";
+        try {
+          const data = await dlRes.json();
+          message = data.error || message;
+        } catch {
+          message = dlRes.statusText || message;
+        }
+        setErr(
+          `${format === "excel" ? "Excel" : "PDF"} download failed: ${message}`
+        );
+        setReport(null);
+        setGenerated(null);
         return;
       }
-      let message = "Download failed";
-      try {
-        const data = await res.json();
-        message = data.error || message;
-      } catch {
-        message = res.statusText || message;
+
+      const blob = await dlRes.blob();
+      triggerBlobDownload(blob, filename);
+
+      if (jsonRes.ok) {
+        try {
+          const data = await jsonRes.json();
+          setReport(data);
+          setGenerated({
+            from,
+            to,
+            scope,
+            category,
+            includeImports,
+            format,
+          });
+        } catch {
+          setReport(null);
+          setGenerated({
+            from,
+            to,
+            scope,
+            category,
+            includeImports,
+            format,
+          });
+        }
+      } else {
+        // File downloaded; preview optional
+        setReport(null);
+        setGenerated({
+          from,
+          to,
+          scope,
+          category,
+          includeImports,
+          format,
+        });
       }
-      setErr(`CSV download failed: ${message}`);
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "Download failed";
-      setErr(`CSV download failed: ${msg}`);
+      const msg = e instanceof Error ? e.message : "Generate failed";
+      setErr(`Generate failed: ${msg}`);
+      setReport(null);
+      setGenerated(null);
     } finally {
-      setDownloading(null);
+      setLoading(false);
     }
   };
 
@@ -200,6 +297,9 @@ export default function ReportsPage() {
   }
 
   const rangeLabel = report?.range_label || report?.month_label || `${from} → ${to}`;
+  const scopeLabel =
+    SCOPE_OPTIONS.find((o) => o.value === (generated?.scope ?? scope))
+      ?.label || "All";
 
   return (
     <div className="space-y-4 report-page">
@@ -216,6 +316,7 @@ export default function ReportsPage() {
       </div>
 
       <div className="no-print card p-4 space-y-3">
+        {/* 1. Dates */}
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="label" htmlFor="report-from">
@@ -251,48 +352,137 @@ export default function ReportsPage() {
         >
           This month (1st → today)
         </button>
+
+        {/* 2. Report scope + category */}
+        <div>
+          <label className="label" htmlFor="report-scope">
+            Report scope
+          </label>
+          <select
+            id="report-scope"
+            className="input"
+            value={scope}
+            onChange={(e) => setScope(e.target.value as ScopeValue)}
+          >
+            {SCOPE_OPTIONS.map((o) => (
+              <option key={o.value || "all"} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {SCOPE_OPTIONS.map((o) => (
+              <button
+                key={`chip-${o.value || "all"}`}
+                type="button"
+                className={`rounded-full px-2.5 py-1 text-[11px] font-semibold border ${
+                  scope === o.value
+                    ? "bg-brand-600 text-white border-brand-600"
+                    : "bg-white text-slate-600 border-slate-200"
+                }`}
+                onClick={() => setScope(o.value)}
+              >
+                {o.value === ""
+                  ? "All"
+                  : STOCK_GROUP_LABELS[o.value as StockGroup]}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <label className="label" htmlFor="report-category">
+            Category
+          </label>
+          <select
+            id="report-category"
+            className="input"
+            value={category}
+            onChange={(e) => setCategory(e.target.value)}
+          >
+            <option value="">All categories</option>
+            {filteredCategories.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <label className="flex items-start gap-2 text-sm text-slate-700 cursor-pointer">
+          <input
+            type="checkbox"
+            className="mt-0.5"
+            checked={includeImports}
+            onChange={(e) => setIncludeImports(e.target.checked)}
+          />
+          <span>
+            <span className="font-medium">Include bulk import adjustments</span>
+            <span className="block text-[11px] text-slate-500">
+              Off by default so Crash Cart / stock-sheet imports (user{" "}
+              <code className="text-[10px]">import</code>) do not dominate
+              Products reports. Always included when scope is Crash Cart.
+            </span>
+          </span>
+        </label>
+
+        {/* 3. Format */}
+        <div>
+          <p className="label mb-1.5">Format</p>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              className={`rounded-xl border px-3 py-2.5 text-sm font-semibold ${
+                format === "excel"
+                  ? "border-brand-600 bg-brand-50 text-brand-800"
+                  : "border-slate-200 bg-white text-slate-600"
+              }`}
+              onClick={() => setFormat("excel")}
+            >
+              Excel
+            </button>
+            <button
+              type="button"
+              className={`rounded-xl border px-3 py-2.5 text-sm font-semibold ${
+                format === "pdf"
+                  ? "border-brand-600 bg-brand-50 text-brand-800"
+                  : "border-slate-200 bg-white text-slate-600"
+              }`}
+              onClick={() => setFormat("pdf")}
+            >
+              PDF
+            </button>
+          </div>
+        </div>
+
+        {/* 4. Generate */}
         <button
           type="button"
           className="btn-primary text-sm w-full"
-          onClick={() => void load()}
+          onClick={() => void generateReport()}
           disabled={loading || rangeInvalid}
         >
           {loading ? "Generating…" : "Generate report"}
         </button>
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            className="btn-secondary text-sm flex-1"
-            onClick={() => window.print()}
-            disabled={!reportReady}
-          >
-            🖨 Print
-          </button>
-          <button
-            type="button"
-            className="btn-primary text-sm flex-1"
-            onClick={() => void downloadCsv()}
-            disabled={!reportReady || downloading !== null}
-          >
-            {downloading === "csv" ? "…" : "⬇ CSV (Excel)"}
-          </button>
-          <button
-            type="button"
-            className="btn-secondary text-sm flex-1"
-            onClick={() => void downloadPdf()}
-            disabled={!reportReady || downloading !== null}
-          >
-            {downloading === "pdf" ? "…" : "⬇ PDF"}
-          </button>
-        </div>
+
+        <button
+          type="button"
+          className="btn-secondary text-sm w-full"
+          onClick={() => window.print()}
+          disabled={!reportReady || !report}
+        >
+          🖨 Print preview
+        </button>
+
         {!reportReady && !loading && (
           <p className="text-[11px] text-slate-500">
-            Select dates, tap Generate report, then Print / CSV / PDF.
+            Choose dates → scope / category → Excel or PDF → Generate report
+            (downloads the file and shows a preview).
           </p>
         )}
       </div>
 
-      {loading && <p className="text-sm text-slate-500">Loading…</p>}
+      {loading && <p className="text-sm text-slate-500">Generating…</p>}
       {err && <p className="text-sm text-rose-600">{err}</p>}
 
       {reportReady && !loading && report && (
@@ -302,6 +492,16 @@ export default function ReportsPage() {
             <p className="text-sm">
               Staff stock report — {rangeLabel}
             </p>
+            <p className="text-xs">
+              Scope: {scopeLabel}
+              {generated?.category ? ` · Category: ${generated.category}` : ""}
+            </p>
+          </div>
+
+          <div className="no-print text-xs text-slate-500">
+            Preview · {scopeLabel}
+            {generated?.category ? ` · ${generated.category}` : ""}
+            {generated?.includeImports ? " · incl. bulk imports" : ""}
           </div>
 
           <div className="grid grid-cols-2 gap-3">
@@ -359,7 +559,7 @@ export default function ReportsPage() {
           {report.staff.length === 0 ? (
             <p className="text-sm text-slate-500 card p-4">
               No stock additions, transfers from Main Store, or use/sale recorded
-              for this date range.
+              for this date range and filters.
             </p>
           ) : (
             <div className="space-y-4">

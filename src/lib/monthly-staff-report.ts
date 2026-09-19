@@ -5,6 +5,8 @@ import type {
   ReportLine,
   StaffReport,
 } from "./monthly-staff-report-types";
+import { getStockGroup, type StockGroup } from "./stock-groups";
+import ExcelJS from "exceljs";
 
 export type {
   MonthlyStaffReport,
@@ -17,6 +19,21 @@ const UNKNOWN_KEY = "__unknown__";
 const UNKNOWN_LABEL = "Unknown / before login tracking";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Bulk import rows from Crash Cart / stock sheet imports (username `import`). */
+const BULK_IMPORT_NOTE_RE = /crash cart import|stock sheet/i;
+
+export type StaffReportFilterOptions = {
+  /** Exact product category match; empty/null = all */
+  category?: string | null;
+  /** Stock group from getStockGroup; null = all */
+  stockGroup?: StockGroup | null;
+  /**
+   * When false (default), skip username===import rows whose note looks like
+   * crash cart / stock sheet bulk import — unless stockGroup is crash_cart.
+   */
+  includeImports?: boolean;
+};
 
 /** Validate YYYY-MM-DD and that it is a real calendar date. */
 export function parseDateParam(
@@ -75,6 +92,32 @@ export function formatRangeLabel(from: string, to: string): string {
   return `${from} → ${to}`;
 }
 
+/** Parse category / group / includeImports from report query string. */
+export function parseReportFilterParams(
+  sp: URLSearchParams
+): StaffReportFilterOptions {
+  const category = (sp.get("category") || "").trim() || null;
+  const groupRaw = (sp.get("group") || "").trim().toLowerCase();
+  let stockGroup: StockGroup | null = null;
+  if (
+    groupRaw === "products" ||
+    groupRaw === "consumables" ||
+    groupRaw === "crash_cart"
+  ) {
+    stockGroup = groupRaw;
+  }
+  const includeRaw = (sp.get("includeImports") || "").trim().toLowerCase();
+  const includeImports =
+    includeRaw === "1" || includeRaw === "true" || includeRaw === "yes";
+  return { category, stockGroup, includeImports };
+}
+
+function isBulkImportAdjustment(a: Activity): boolean {
+  const user = (a.username || "").trim().toLowerCase();
+  if (user !== "import") return false;
+  return BULK_IMPORT_NOTE_RE.test(a.note || "");
+}
+
 function isTransferFromMain(a: Activity): boolean {
   if (a.type !== "transfer") return false;
   const loc = a.location || "";
@@ -119,10 +162,45 @@ function inDateRange(createdAt: string, from: string, to: string): boolean {
   return createdAt >= start && createdAt <= end;
 }
 
+function activityMatchesFilters(
+  a: Activity,
+  product: { category?: string | null; product?: string | null } | undefined,
+  options: StaffReportFilterOptions | undefined
+): boolean {
+  const opts = options || {};
+  const includeImports = !!opts.includeImports;
+  const stockGroup = opts.stockGroup ?? null;
+  const category = (opts.category || "").trim() || null;
+
+  // Exclude bulk Crash Cart / stock-sheet imports unless scoped to Crash Cart or opted in
+  if (
+    !includeImports &&
+    stockGroup !== "crash_cart" &&
+    isBulkImportAdjustment(a)
+  ) {
+    return false;
+  }
+
+  if (stockGroup) {
+    const group = getStockGroup(
+      product || { category: "", product: a.product_name || "" }
+    );
+    if (group !== stockGroup) return false;
+  }
+
+  if (category) {
+    const prodCat = (product?.category || "").trim();
+    if (prodCat !== category) return false;
+  }
+
+  return true;
+}
+
 export function buildMonthlyStaffReport(
   store: StoreData,
   from: string,
-  to: string
+  to: string,
+  options?: StaffReportFilterOptions
 ): MonthlyStaffReport {
   const productById = new Map(store.products.map((p) => [p.id, p]));
   const userByUsername = new Map(
@@ -156,9 +234,11 @@ export function buildMonthlyStaffReport(
   for (const a of store.activity) {
     if (!inDateRange(a.created_at, from, to)) continue;
 
+    const product = productById.get(a.product_id);
+    if (!activityMatchesFilters(a, product, options)) continue;
+
     const key = staffKey(a.username);
     const username = key === UNKNOWN_KEY ? null : key;
-    const product = productById.get(a.product_id);
     const product_name =
       product?.product || a.product_name || `Product #${a.product_id}`;
     const barcode = product?.barcode || a.barcode || "";
@@ -362,4 +442,122 @@ export function reportToCsv(report: MonthlyStaffReport): string {
     }
   }
   return lines.join("\n") + "\n";
+}
+
+/** Real .xlsx workbook with the same columns as CSV. */
+export async function reportToXlsx(
+  report: MonthlyStaffReport
+): Promise<Buffer> {
+  const wb = new ExcelJS.Workbook();
+  wb.creator = "Clinic Inventory";
+  wb.created = new Date();
+
+  const sheet = wb.addWorksheet("Staff stock", {
+    views: [{ state: "frozen", ySplit: 1 }],
+  });
+
+  sheet.columns = [
+    { header: "staff_display_name", key: "staff_display_name", width: 22 },
+    { header: "username", key: "username", width: 14 },
+    { header: "category", key: "category", width: 18 },
+    { header: "date", key: "date", width: 20 },
+    { header: "product_name", key: "product_name", width: 36 },
+    { header: "barcode", key: "barcode", width: 14 },
+    { header: "qty", key: "qty", width: 10 },
+    { header: "to_location", key: "to_location", width: 16 },
+    { header: "location", key: "location", width: 20 },
+    { header: "type", key: "type", width: 12 },
+    { header: "note", key: "note", width: 40 },
+  ];
+
+  const headerRow = sheet.getRow(1);
+  headerRow.font = { bold: true };
+  headerRow.alignment = { vertical: "middle" };
+
+  for (const s of report.staff) {
+    for (const r of s.receives) {
+      sheet.addRow({
+        staff_display_name: s.display_name,
+        username: s.username ?? "",
+        category: "stock_added",
+        date: r.date,
+        product_name: r.product_name,
+        barcode: r.barcode,
+        qty: r.qty,
+        to_location: "",
+        location: r.location ?? "",
+        type: "receive",
+        note: r.note ?? "",
+      });
+    }
+    for (const t of s.transfers_from_main) {
+      sheet.addRow({
+        staff_display_name: s.display_name,
+        username: s.username ?? "",
+        category: "transfer_from_main",
+        date: t.date,
+        product_name: t.product_name,
+        barcode: t.barcode,
+        qty: t.qty,
+        to_location: t.to_location ?? "",
+        location: "",
+        type: "transfer",
+        note: t.note ?? "",
+      });
+    }
+    for (const c of s.consumptions) {
+      sheet.addRow({
+        staff_display_name: s.display_name,
+        username: s.username ?? "",
+        category: "consumption_or_sale",
+        date: c.date,
+        product_name: c.product_name,
+        barcode: c.barcode,
+        qty: c.qty,
+        to_location: "",
+        location: c.location ?? "",
+        type: c.type ?? "",
+        note: c.note ?? "",
+      });
+    }
+  }
+
+  const summary = wb.addWorksheet("Summary");
+  summary.columns = [
+    { header: "metric", key: "metric", width: 24 },
+    { header: "value", key: "value", width: 40 },
+  ];
+  summary.getRow(1).font = { bold: true };
+  summary.addRow({ metric: "range", value: report.range_label });
+  summary.addRow({
+    metric: "staff_count",
+    value: report.grand_totals.staff_count,
+  });
+  summary.addRow({
+    metric: "receive_qty_sum",
+    value: report.grand_totals.receive_qty_sum,
+  });
+  summary.addRow({
+    metric: "receive_count",
+    value: report.grand_totals.receive_count,
+  });
+  summary.addRow({
+    metric: "transfer_qty_sum",
+    value: report.grand_totals.transfer_qty_sum,
+  });
+  summary.addRow({
+    metric: "transfer_count",
+    value: report.grand_totals.transfer_count,
+  });
+  summary.addRow({
+    metric: "consumption_qty_sum",
+    value: report.grand_totals.consumption_qty_sum,
+  });
+  summary.addRow({
+    metric: "consumption_count",
+    value: report.grand_totals.consumption_count,
+  });
+
+  const buf = await wb.xlsx.writeBuffer();
+  return Buffer.from(buf);
 }

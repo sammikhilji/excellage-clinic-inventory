@@ -5,6 +5,7 @@ import {
   buildMonthlyStaffReport,
   parseDateRange,
   parseYearMonth,
+  parseReportFilterParams,
   reportToCsv,
 } from "@/lib/monthly-staff-report";
 
@@ -52,7 +53,13 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: parsed.error }, { status: 400 });
     }
 
-    const report = buildMonthlyStaffReport(store, parsed.from, parsed.to);
+    const filters = parseReportFilterParams(req.nextUrl.searchParams);
+    const report = buildMonthlyStaffReport(
+      store,
+      parsed.from,
+      parsed.to,
+      filters
+    );
     const csv = reportToCsv(report);
     const filename = `staff-stock-${parsed.from}_to_${parsed.to}.csv`;
     return new NextResponse(csv, {

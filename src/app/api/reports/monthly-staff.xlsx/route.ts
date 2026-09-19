@@ -6,8 +6,8 @@ import {
   parseDateRange,
   parseYearMonth,
   parseReportFilterParams,
+  reportToXlsx,
 } from "@/lib/monthly-staff-report";
-import { reportToPdf } from "@/lib/monthly-staff-report-pdf";
 
 export const dynamic = "force-dynamic";
 
@@ -62,23 +62,24 @@ export async function GET(req: NextRequest) {
       parsed.to,
       filters
     );
-    let pdfBytes: Uint8Array;
+    let xlsxBytes: Buffer;
     try {
-      pdfBytes = await reportToPdf(report);
+      xlsxBytes = await reportToXlsx(report);
     } catch (buildErr) {
-      console.error("PDF build failed:", buildErr);
+      console.error("XLSX build failed:", buildErr);
       const msg =
-        buildErr instanceof Error ? buildErr.message : "PDF build failed";
+        buildErr instanceof Error ? buildErr.message : "XLSX build failed";
       return NextResponse.json(
-        { error: `PDF build failed: ${msg}` },
+        { error: `Excel build failed: ${msg}` },
         { status: 500 }
       );
     }
-    const filename = `staff-stock-${parsed.from}_to_${parsed.to}.pdf`;
-    return new NextResponse(Buffer.from(pdfBytes), {
+    const filename = `staff-stock-${parsed.from}_to_${parsed.to}.xlsx`;
+    return new NextResponse(new Uint8Array(xlsxBytes), {
       status: 200,
       headers: {
-        "Content-Type": "application/pdf",
+        "Content-Type":
+          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         "Content-Disposition": `attachment; filename="${filename}"`,
       },
     });

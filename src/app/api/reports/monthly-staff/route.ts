@@ -5,6 +5,7 @@ import {
   buildMonthlyStaffReport,
   parseDateRange,
   parseYearMonth,
+  parseReportFilterParams,
   reportToCsv,
 } from "@/lib/monthly-staff-report";
 
@@ -61,10 +62,12 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: parsed.error }, { status: 400 });
     }
 
+    const filters = parseReportFilterParams(req.nextUrl.searchParams);
     const report = buildMonthlyStaffReport(
       access.store!,
       parsed.from,
-      parsed.to
+      parsed.to,
+      filters
     );
 
     const format = (req.nextUrl.searchParams.get("format") || "").toLowerCase();
