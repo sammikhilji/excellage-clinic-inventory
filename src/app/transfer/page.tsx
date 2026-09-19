@@ -5,6 +5,7 @@ import { useSearchParams, useRouter } from "next/navigation";
 import BarcodeScanner from "@/components/BarcodeScanner";
 import { LOCATIONS, formatUnitLabel } from "@/lib/types";
 import StatusBadge from "@/components/StatusBadge";
+import { displayProductStatus } from "@/lib/expiry-display";
 import { useAuth } from "@/components/AuthGate";
 
 type ProductInfo = {
@@ -146,7 +147,7 @@ function TransferInner() {
             <h3 className="text-lg font-bold leading-snug">{product.product}</h3>
             <p className="text-sm text-slate-500">{product.category}</p>
             <div className="mt-2 flex flex-wrap gap-2 items-center">
-              <StatusBadge status={product.status} />
+              <StatusBadge status={displayProductStatus(product)} />
               <span className="text-sm text-slate-600">
                 Total: <strong>{product.total}</strong> {unit}
               </span>

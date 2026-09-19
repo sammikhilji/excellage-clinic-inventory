@@ -5,6 +5,7 @@ import Link from "next/link";
 import StatusBadge from "@/components/StatusBadge";
 import { LOCATIONS, formatUnitLabel } from "@/lib/types";
 import {
+  displayProductStatus,
   expiryChipClassCompact,
   expiryStatusRank,
   formatExpiryChipLabel,
@@ -243,9 +244,14 @@ export default function InventoryPage() {
                 </div>
               </div>
               <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                <StatusBadge status={p.status} />
+                <StatusBadge status={displayProductStatus(p)} />
                 {p.expiry && (
-                  <span className={expiryChipClassCompact(p.status, p.expiry)}>
+                  <span
+                    className={expiryChipClassCompact(
+                      displayProductStatus(p),
+                      p.expiry
+                    )}
+                  >
                     {formatExpiryChipLabel(p.expiry, { compact: true })}
                   </span>
                 )}

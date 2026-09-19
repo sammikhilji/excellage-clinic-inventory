@@ -6,22 +6,16 @@ import {
   STOCK_GROUP_LABELS,
   type StockGroup,
 } from "@/lib/stock-groups";
+import {
+  computeExpiryFieldStatus,
+  EXPIRY_ALERT_STATUSES,
+  expiryStatusRank,
+  nowInDubai,
+} from "@/lib/expiry-display";
 
 export const dynamic = "force-dynamic";
 
-const ALERT_STATUSES = [
-  "Expired",
-  "Expires this month",
-  "Expiring ≤90 days",
-  "Expiring ≤6 months",
-];
-
-const STATUS_ORDER: Record<string, number> = {
-  Expired: 1,
-  "Expires this month": 2,
-  "Expiring ≤90 days": 3,
-  "Expiring ≤6 months": 4,
-};
+const ALERT_SET = new Set<string>(EXPIRY_ALERT_STATUSES);
 
 type GroupStats = {
   label: string;
@@ -41,6 +35,7 @@ function emptyGroup(key: StockGroup): GroupStats {
 
 export async function GET() {
   const store = await getStore();
+  const now = nowInDubai();
 
   const groups: Record<StockGroup, GroupStats> = {
     products: emptyGroup("products"),
@@ -68,12 +63,24 @@ export async function GET() {
     totalStockValue += value;
   }
 
+  // Compute expiry urgency from the date field (stored status is often stale "OK").
   const expiryAlerts = store.products
-    .filter((p) => ALERT_STATUSES.includes(p.status))
+    .map((p) => {
+      const expiryStatus = computeExpiryFieldStatus(p.expiry, now);
+      return { ...p, status: expiryStatus, expiryStatus };
+    })
+    .filter((p) => {
+      if (!ALERT_SET.has(p.status)) return false;
+      // Prefer in-stock; also surface expired rows even if qty is 0.
+      if (p.total > 0) return true;
+      return p.status === "Expired";
+    })
     .sort((a, b) => {
-      const oa = STATUS_ORDER[a.status] ?? 5;
-      const ob = STATUS_ORDER[b.status] ?? 5;
+      const oa = expiryStatusRank(a.status);
+      const ob = expiryStatusRank(b.status);
       if (oa !== ob) return oa - ob;
+      // In-stock before OOS within the same urgency bucket
+      if ((a.total > 0) !== (b.total > 0)) return a.total > 0 ? -1 : 1;
       return a.product.localeCompare(b.product);
     })
     .slice(0, 30);

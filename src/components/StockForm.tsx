@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { LOCATIONS, formatUnitLabel } from "@/lib/types";
 import StatusBadge from "./StatusBadge";
+import { displayProductStatus } from "@/lib/expiry-display";
 import { useAuth } from "./AuthGate";
 
 type ProductInfo = {
@@ -100,7 +101,7 @@ export default function StockForm({ mode, product, onDone, onCancel }: Props) {
         <h2 className="text-lg font-bold leading-snug">{product.product}</h2>
         <p className="text-sm text-slate-500">{product.category}</p>
         <div className="mt-2 flex flex-wrap gap-2 items-center">
-          <StatusBadge status={product.status} />
+          <StatusBadge status={displayProductStatus(product)} />
           <span className="text-sm text-slate-600">
             Total: <strong>{product.total}</strong> {unit}
           </span>

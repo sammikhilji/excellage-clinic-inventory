@@ -11,7 +11,10 @@ import {
   formatDateLabel,
   timeOnly,
 } from "@/lib/activity-display";
-import { expiryChipClassCompact } from "@/lib/expiry-display";
+import {
+  expiryChipClassCompact,
+  formatExpiryChipLabel,
+} from "@/lib/expiry-display";
 
 const GROUP_ORDER: StockGroupKey[] = ["products", "consumables", "crash_cart"];
 
@@ -166,9 +169,13 @@ export default function DashboardPage() {
                 <Link href={`/inventory/${p.id}`} className="flex items-start justify-between gap-2 py-2.5">
                   <div className="min-w-0">
                     <p className="truncate text-sm font-medium">{p.product}</p>
-                    <p className="text-xs text-slate-500">
-                      <span className={expiryChipClassCompact(p.status, p.expiry)}>{p.expiry || "—"}</span>
-                      <span className="text-xs text-slate-500"> · qty {p.total}</span>
+                    <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-slate-500">
+                      <span className={expiryChipClassCompact(p.status, p.expiry)}>
+                        {p.expiry
+                          ? formatExpiryChipLabel(p.expiry, { compact: true })
+                          : "No expiry"}
+                      </span>
+                      <span>· qty {p.total}</span>
                     </p>
                   </div>
                   <StatusBadge status={p.status} />

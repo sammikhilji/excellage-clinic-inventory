@@ -173,3 +173,47 @@ export function expiryStatusRank(status: string | null | undefined): number {
   if (!status) return 6;
   return EXPIRY_STATUS_RANK[status] ?? 6;
 }
+
+/** Calendar "today" as UTC Date whose Y/M/D match Asia/Dubai (for expiry math). */
+export function nowInDubai(d: Date = new Date()): Date {
+  try {
+    const ymd = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Dubai",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(d);
+    const [y, m, day] = ymd.split("-").map(Number);
+    return new Date(Date.UTC(y, m - 1, day));
+  } catch {
+    return new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  }
+}
+
+export const EXPIRY_ALERT_STATUSES = [
+  "Expired",
+  "Expires this month",
+  "Expiring ≤90 days",
+  "Expiring ≤6 months",
+] as const;
+
+export type ExpiryAlertStatus = (typeof EXPIRY_ALERT_STATUSES)[number];
+
+export function isExpiryAlertStatus(status: string): status is ExpiryAlertStatus {
+  return (EXPIRY_ALERT_STATUSES as readonly string[]).includes(status);
+}
+
+/**
+ * Badge / list status at read time.
+ * OUT OF STOCK wins when total <= 0. PAO "After opening" preserved.
+ * Otherwise recompute from expiry (never trust stale stored "OK").
+ */
+export function displayProductStatus(
+  p: { status?: string | null; expiry?: string | null; total?: number | null },
+  now: Date = nowInDubai()
+): string {
+  if ((p.total ?? 0) <= 0) return "OUT OF STOCK";
+  if (isPaoCode(p.expiry) && p.status === "After opening") return "After opening";
+  return computeExpiryFieldStatus(p.expiry, now);
+}
+

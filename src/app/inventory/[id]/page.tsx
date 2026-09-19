@@ -13,6 +13,7 @@ import {
   timeOnly,
 } from "@/lib/activity-display";
 import {
+  displayProductStatus,
   expiryChipClass,
   formatExpiryChipLabel,
 } from "@/lib/expiry-display";
@@ -225,9 +226,14 @@ export default function ProductDetailPage() {
         <h2 className="text-xl font-bold leading-snug">{item.product}</h2>
         <p className="text-sm text-slate-500">{item.category}</p>
         <div className="flex flex-wrap gap-2 items-center pt-1">
-          <StatusBadge status={item.status} />
+          <StatusBadge status={displayProductStatus(item)} />
           {item.expiry && (
-            <span className={expiryChipClass(item.status, item.expiry)}>
+            <span
+              className={expiryChipClass(
+                displayProductStatus(item),
+                item.expiry
+              )}
+            >
               {formatExpiryChipLabel(item.expiry)}
             </span>
           )}

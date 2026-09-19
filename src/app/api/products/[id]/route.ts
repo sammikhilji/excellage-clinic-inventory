@@ -6,6 +6,7 @@ import {
   normalizeAliasCode,
   parseScanPayload,
 } from "@/lib/barcodes";
+import { displayProductStatus, nowInDubai } from "@/lib/expiry-display";
 
 export const dynamic = "force-dynamic";
 
@@ -56,7 +57,8 @@ export async function GET(
       barcode: product.barcode,
     }));
 
-  return NextResponse.json({ ...product, holdings, activity });
+  const status = displayProductStatus(product, nowInDubai());
+  return NextResponse.json({ ...product, status, holdings, activity });
 }
 
 export async function PATCH(

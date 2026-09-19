@@ -11,6 +11,7 @@ import {
   normalizeAliasCode,
   parseScanPayload,
 } from "@/lib/barcodes";
+import { displayProductStatus, nowInDubai } from "@/lib/expiry-display";
 
 export const dynamic = "force-dynamic";
 
@@ -21,8 +22,13 @@ export async function GET(req: NextRequest) {
   const category = sp.get("category") || "";
   const location = sp.get("location") || "";
   const status = sp.get("status") || "";
+  const now = nowInDubai();
 
-  let products = store.products.slice();
+  // Compute expiry urgency at read time (stored status is often stale "OK").
+  let products = store.products.map((p) => ({
+    ...p,
+    status: displayProductStatus(p, now),
+  }));
 
   if (q) {
     products = products.filter((p) => {
@@ -60,7 +66,9 @@ export async function GET(req: NextRequest) {
   }));
 
   const categories = [...new Set(store.products.map((p) => p.category))].sort();
-  const statuses = [...new Set(store.products.map((p) => p.status))].sort();
+  const statuses = [
+    ...new Set(store.products.map((p) => displayProductStatus(p, now))),
+  ].sort();
 
   return NextResponse.json({ products: result, categories, statuses });
 }
