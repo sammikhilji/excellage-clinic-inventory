@@ -55,7 +55,18 @@ export async function GET(req: NextRequest) {
     }
 
     const report = buildMonthlyStaffReport(store, parsed.from, parsed.to);
-    const pdfBytes = await reportToPdf(report);
+    let pdfBytes: Uint8Array;
+    try {
+      pdfBytes = await reportToPdf(report);
+    } catch (buildErr) {
+      console.error("PDF build failed:", buildErr);
+      const msg =
+        buildErr instanceof Error ? buildErr.message : "PDF build failed";
+      return NextResponse.json(
+        { error: `PDF build failed: ${msg}` },
+        { status: 500 }
+      );
+    }
     const filename = `staff-stock-${parsed.from}_to_${parsed.to}.pdf`;
     return new NextResponse(Buffer.from(pdfBytes), {
       status: 200,
@@ -66,6 +77,7 @@ export async function GET(req: NextRequest) {
     });
   } catch (e) {
     console.error(e);
-    return NextResponse.json({ error: "Server error" }, { status: 500 });
+    const msg = e instanceof Error ? e.message : "Server error";
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }

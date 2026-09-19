@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "@/components/AuthGate";
 import type { MonthlyStaffReport } from "@/lib/monthly-staff-report-types";
@@ -39,13 +39,27 @@ function dateLine(createdAt: string): string {
   return t ? `${formatDateLabel(createdAt)} · ${t}` : formatDateLabel(createdAt);
 }
 
+function triggerBlobDownload(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 export default function ReportsPage() {
   const { user } = useAuth();
   const initial = useMemo(() => defaultDateRange(), []);
   const [from, setFrom] = useState(initial.from);
   const [to, setTo] = useState(initial.to);
   const [report, setReport] = useState<MonthlyStaffReport | null>(null);
+  const [generatedFrom, setGeneratedFrom] = useState<string | null>(null);
+  const [generatedTo, setGeneratedTo] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [downloading, setDownloading] = useState<"pdf" | "csv" | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
   const allowed =
@@ -53,47 +67,122 @@ export default function ReportsPage() {
 
   const rangeInvalid = !from || !to || from > to;
 
+  const reportReady =
+    !!report &&
+    generatedFrom === from &&
+    generatedTo === to &&
+    !rangeInvalid;
+
   const load = useCallback(async () => {
     if (!allowed) return;
     if (!from || !to) {
       setErr("Select From and To dates");
       setReport(null);
+      setGeneratedFrom(null);
+      setGeneratedTo(null);
       return;
     }
     if (from > to) {
       setErr("From must be on or before To");
       setReport(null);
+      setGeneratedFrom(null);
+      setGeneratedTo(null);
       return;
     }
     setLoading(true);
     setErr(null);
     try {
       const res = await fetch(
-        `/api/reports/monthly-staff?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`
+        `/api/reports/monthly-staff?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+        { credentials: "include" }
       );
       const data = await res.json();
       if (!res.ok) {
         setErr(data.error || "Failed to load report");
         setReport(null);
+        setGeneratedFrom(null);
+        setGeneratedTo(null);
         return;
       }
       setReport(data);
+      setGeneratedFrom(from);
+      setGeneratedTo(to);
     } catch {
       setErr("Failed to load report");
       setReport(null);
+      setGeneratedFrom(null);
+      setGeneratedTo(null);
     } finally {
       setLoading(false);
     }
   }, [allowed, from, to]);
 
-  useEffect(() => {
-    void load();
-  }, [load]);
-
   const setThisMonth = () => {
     const r = defaultDateRange();
     setFrom(r.from);
     setTo(r.to);
+  };
+
+  const downloadPdf = async () => {
+    if (!reportReady) return;
+    setDownloading("pdf");
+    setErr(null);
+    try {
+      const res = await fetch(
+        `/api/reports/monthly-staff.pdf?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+        { credentials: "include" }
+      );
+      const ct = res.headers.get("content-type") || "";
+      if (ct.includes("application/pdf")) {
+        const blob = await res.blob();
+        triggerBlobDownload(blob, `staff-stock-${from}_to_${to}.pdf`);
+        return;
+      }
+      let message = "Download failed";
+      try {
+        const data = await res.json();
+        message = data.error || message;
+      } catch {
+        message = res.statusText || message;
+      }
+      setErr(`PDF download failed: ${message}`);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Download failed";
+      setErr(`PDF download failed: ${msg}`);
+    } finally {
+      setDownloading(null);
+    }
+  };
+
+  const downloadCsv = async () => {
+    if (!reportReady) return;
+    setDownloading("csv");
+    setErr(null);
+    try {
+      const res = await fetch(
+        `/api/reports/monthly-staff.csv?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+        { credentials: "include" }
+      );
+      const ct = res.headers.get("content-type") || "";
+      if (ct.includes("text/csv") || (res.ok && !ct.includes("application/json"))) {
+        const blob = await res.blob();
+        triggerBlobDownload(blob, `staff-stock-${from}_to_${to}.csv`);
+        return;
+      }
+      let message = "Download failed";
+      try {
+        const data = await res.json();
+        message = data.error || message;
+      } catch {
+        message = res.statusText || message;
+      }
+      setErr(`CSV download failed: ${message}`);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Download failed";
+      setErr(`CSV download failed: ${msg}`);
+    } finally {
+      setDownloading(null);
+    }
   };
 
   if (!allowed) {
@@ -162,36 +251,51 @@ export default function ReportsPage() {
         >
           This month (1st → today)
         </button>
+        <button
+          type="button"
+          className="btn-primary text-sm w-full"
+          onClick={() => void load()}
+          disabled={loading || rangeInvalid}
+        >
+          {loading ? "Generating…" : "Generate report"}
+        </button>
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
             className="btn-secondary text-sm flex-1"
             onClick={() => window.print()}
-            disabled={!report || rangeInvalid}
+            disabled={!reportReady}
           >
             🖨 Print
           </button>
-          <a
-            className={`btn-primary text-sm flex-1 text-center ${!report || rangeInvalid ? "pointer-events-none opacity-50" : ""}`}
-            href={`/api/reports/monthly-staff.csv?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`}
-            download
+          <button
+            type="button"
+            className="btn-primary text-sm flex-1"
+            onClick={() => void downloadCsv()}
+            disabled={!reportReady || downloading !== null}
           >
-            ⬇ CSV (Excel)
-          </a>
-          <a
-            className={`btn-secondary text-sm flex-1 text-center ${!report || rangeInvalid ? "pointer-events-none opacity-50" : ""}`}
-            href={`/api/reports/monthly-staff.pdf?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`}
-            download
+            {downloading === "csv" ? "…" : "⬇ CSV (Excel)"}
+          </button>
+          <button
+            type="button"
+            className="btn-secondary text-sm flex-1"
+            onClick={() => void downloadPdf()}
+            disabled={!reportReady || downloading !== null}
           >
-            ⬇ PDF
-          </a>
+            {downloading === "pdf" ? "…" : "⬇ PDF"}
+          </button>
         </div>
+        {!reportReady && !loading && (
+          <p className="text-[11px] text-slate-500">
+            Select dates, tap Generate report, then Print / CSV / PDF.
+          </p>
+        )}
       </div>
 
       {loading && <p className="text-sm text-slate-500">Loading…</p>}
       {err && <p className="text-sm text-rose-600">{err}</p>}
 
-      {report && !loading && (
+      {reportReady && !loading && report && (
         <>
           <div className="print-only mb-4">
             <h1 className="text-xl font-bold">Clinic Inventory</h1>

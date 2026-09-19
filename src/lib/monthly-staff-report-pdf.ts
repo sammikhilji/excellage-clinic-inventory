@@ -5,6 +5,42 @@ function fmtQty(n: number): string {
   return Number.isInteger(n) ? String(n) : n.toFixed(1);
 }
 
+/**
+ * pdf-lib StandardFonts (Helvetica) only encode WinAnsi / Windows-1252.
+ * Replace common Unicode punctuation so drawText never throws.
+ */
+export function toWinAnsi(s: string): string {
+  if (!s) return "";
+  return (
+    s
+      .replace(/\u2014/g, "-") // —
+      .replace(/\u2013/g, "-") // –
+      .replace(/\u2212/g, "-") // −
+      .replace(/\u2018|\u2019/g, "'") // ‘ ’
+      .replace(/\u201C|\u201D/g, '"') // “ ”
+      .replace(/\u2026/g, "...") // …
+      .replace(/\u00A0/g, " ") // nbsp
+      .replace(/\u2192/g, "->") // →
+      .replace(/\u2190/g, "<-") // ←
+      .replace(/\u2194/g, "<->") // ↔
+      .replace(/\u2022/g, "*") // •
+      .replace(/\u00B7/g, ".") // · (keep printable; WinAnsi has it but normalize for safety)
+      // Strip / replace any remaining non-WinAnsi (keep tab/newline, printable ASCII + Latin-1 0xA0-0xFF)
+      .replace(/[^\t\n\r\x20-\x7E\xA0-\xFF]/g, (ch) => {
+        // Try a few more known symbols
+        const map: Record<string, string> = {
+          "\u2248": "~",
+          "\u2260": "!=",
+          "\u2264": "<=",
+          "\u2265": ">=",
+          "\u00D7": "x",
+          "\u00F7": "/",
+        };
+        return map[ch] ?? "";
+      })
+  );
+}
+
 /** Build a multi-page staff stock report PDF. */
 export async function reportToPdf(
   report: MonthlyStaffReport
@@ -41,12 +77,15 @@ export async function reportToPdf(
     color = rgb(0.1, 0.1, 0.15)
   ) => {
     const f = bold ? fontBold : font;
-    page.drawText(text, { x, y, size, font: f, color });
+    const safe = toWinAnsi(text);
+    if (!safe) return;
+    page.drawText(safe, { x, y, size, font: f, color });
   };
 
   const wrapText = (text: string, maxWidth: number, size: number): string[] => {
     const f = font;
-    const words = text.split(/\s+/).filter(Boolean);
+    const safe = toWinAnsi(text);
+    const words = safe.split(/\s+/).filter(Boolean);
     if (words.length === 0) return [""];
     const lines: string[] = [];
     let current = words[0];
@@ -134,6 +173,7 @@ export async function reportToPdf(
           r.product_name,
           `qty ${fmtQty(r.qty)}`,
           lineLocation(r),
+          r.note || "",
         ]);
       }
       y -= 4;
@@ -147,6 +187,7 @@ export async function reportToPdf(
           t.product_name,
           `qty ${fmtQty(t.qty)}`,
           lineLocation(t),
+          t.note || "",
         ]);
       }
       y -= 4;
@@ -161,6 +202,7 @@ export async function reportToPdf(
           `qty ${fmtQty(c.qty)}`,
           lineLocation(c),
           c.type || "",
+          c.note || "",
         ]);
       }
       y -= 4;
