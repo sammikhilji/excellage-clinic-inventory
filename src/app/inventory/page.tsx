@@ -4,9 +4,22 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import StatusBadge from "@/components/StatusBadge";
 import { LOCATIONS, formatUnitLabel } from "@/lib/types";
-import { expiryChipClassCompact } from "@/lib/expiry-display";
+import {
+  expiryChipClassCompact,
+  expiryStatusRank,
+  parseExpiryTimestamp,
+} from "@/lib/expiry-display";
 import { getStockGroup, type StockGroup } from "@/lib/stock-groups";
 import { stockValue } from "@/lib/stock-metrics";
+
+type SortMode = "default" | "near_expiry" | "high_value" | "low_value";
+
+const SORT_OPTIONS: { id: SortMode; label: string }[] = [
+  { id: "default", label: "Default" },
+  { id: "near_expiry", label: "Near expiry first" },
+  { id: "high_value", label: "High value first" },
+  { id: "low_value", label: "Low value first" },
+];
 
 type Product = {
   id: number;
@@ -32,6 +45,7 @@ export default function InventoryPage() {
   const [location, setLocation] = useState("");
   const [status, setStatus] = useState("");
   const [stockGroup, setStockGroup] = useState<StockGroup | "">("");
+  const [sort, setSort] = useState<SortMode>("default");
   const [loading, setLoading] = useState(true);
 
 
@@ -71,7 +85,52 @@ export default function InventoryPage() {
     return products.filter((p) => getStockGroup(p) === stockGroup);
   }, [products, stockGroup]);
 
-  const countLabel = useMemo(() => `${filtered.length} items`, [filtered]);
+  const sorted = useMemo(() => {
+    if (sort === "default") return filtered;
+
+    const list = [...filtered];
+    if (sort === "near_expiry") {
+      list.sort((a, b) => {
+        const da = parseExpiryTimestamp(a.expiry);
+        const db = parseExpiryTimestamp(b.expiry);
+        if (da != null && db != null) {
+          if (da !== db) return da - db;
+          return a.product.localeCompare(b.product);
+        }
+        if (da != null) return -1;
+        if (db != null) return 1;
+        const ra = expiryStatusRank(a.status);
+        const rb = expiryStatusRank(b.status);
+        if (ra !== rb) return ra - rb;
+        return a.product.localeCompare(b.product);
+      });
+      return list;
+    }
+
+    if (sort === "high_value") {
+      list.sort((a, b) => {
+        const va = stockValue(a.price, a.total);
+        const vb = stockValue(b.price, b.total);
+        if (vb !== va) return vb - va;
+        return a.product.localeCompare(b.product);
+      });
+      return list;
+    }
+
+    // low_value: ascending value; null price last so real lows show first
+    list.sort((a, b) => {
+      const aNull = a.price == null;
+      const bNull = b.price == null;
+      if (aNull !== bNull) return aNull ? 1 : -1;
+      const va = stockValue(a.price, a.total);
+      const vb = stockValue(b.price, b.total);
+      if (va !== vb) return va - vb;
+      return a.product.localeCompare(b.product);
+    });
+    return list;
+  }, [filtered, sort]);
+
+  const countLabel = useMemo(() => `${sorted.length} items`, [sorted]);
 
   const GROUP_CHIPS: { id: StockGroup | ""; label: string }[] = [
     { id: "", label: "All" },
@@ -143,10 +202,25 @@ export default function InventoryPage() {
         </select>
       </div>
 
+      <label className="block">
+        <span className="mb-1 block text-xs font-medium text-slate-500">Sort</span>
+        <select
+          className="input py-2.5 text-sm"
+          value={sort}
+          onChange={(e) => setSort(e.target.value as SortMode)}
+        >
+          {SORT_OPTIONS.map((opt) => (
+            <option key={opt.id} value={opt.id}>
+              {opt.label}
+            </option>
+          ))}
+        </select>
+      </label>
+
       <p className="text-xs text-slate-500">{loading ? "Loading…" : countLabel}</p>
 
       <ul className="space-y-2">
-        {filtered.map((p) => (
+        {sorted.map((p) => (
           <li key={p.id}>
             <Link href={`/inventory/${p.id}`} className="card block p-3 active:bg-slate-50">
               <div className="flex items-start justify-between gap-2">
