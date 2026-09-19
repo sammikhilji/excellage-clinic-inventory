@@ -379,6 +379,10 @@ export default function ReportsPage() {
               </option>
             ))}
           </select>
+          <p className="mt-1 text-[11px] text-slate-500">
+            Stock type (Products / Consumables / Crash Cart) — not the Category
+            dropdown below.
+          </p>
           <div className="mt-2 flex flex-wrap gap-1.5">
             {SCOPE_OPTIONS.map((o) => (
               <button
@@ -428,9 +432,10 @@ export default function ReportsPage() {
           <span>
             <span className="font-medium">Include bulk import adjustments</span>
             <span className="block text-[11px] text-slate-500">
-              Off by default so Crash Cart / stock-sheet imports (user{" "}
-              <code className="text-[10px]">import</code>) do not dominate
-              Products reports. Always included when scope is Crash Cart.
+              Off by default hides Crash Cart bulk imports only (user{" "}
+              <code className="text-[10px]">import</code>
+              ). Product stock-sheet qty/price updates still appear. Always
+              included when scope is Crash Cart.
             </span>
           </span>
         </label>

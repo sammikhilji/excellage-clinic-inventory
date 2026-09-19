@@ -247,11 +247,15 @@ export default function StockValueReportSection() {
       ?.label || "All";
 
   return (
-    <section className="space-y-4 report-page border-t border-slate-200 pt-6 mt-2">
+    <section
+      id="stock-value-report"
+      className="space-y-4 report-page border-t-2 border-slate-300 pt-6 mt-6"
+    >
       <div className="no-print">
         <h2 className="text-lg font-bold">Stock value report</h2>
         <p className="text-xs text-slate-500">
-          Current clinic stock value (live stock · as-of date is a label only)
+          Clinic stock value by department — scroll below Staff stock report.
+          Live current stock (as-of date is a label only).
         </p>
       </div>
 

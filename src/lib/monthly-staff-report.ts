@@ -20,8 +20,8 @@ const UNKNOWN_LABEL = "Unknown / before login tracking";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
-/** Bulk import rows from Crash Cart / stock sheet imports (username `import`). */
-const BULK_IMPORT_NOTE_RE = /crash cart import|stock sheet/i;
+/** Crash Cart bulk-import notes (username `import`). Product "stock sheet" lines are NOT matched. */
+const CRASH_CART_IMPORT_NOTE_RE = /crash cart import/i;
 
 export type StaffReportFilterOptions = {
   /** Exact product category match; empty/null = all */
@@ -29,8 +29,9 @@ export type StaffReportFilterOptions = {
   /** Stock group from getStockGroup; null = all */
   stockGroup?: StockGroup | null;
   /**
-   * When false (default), skip username===import rows whose note looks like
-   * crash cart / stock sheet bulk import — unless stockGroup is crash_cart.
+   * When false (default), skip Crash Cart bulk imports (username===import with
+   * crash-cart import note, or import user on a crash_cart product) — unless
+   * stockGroup is crash_cart. Product stock-sheet adjustments are never auto-hidden.
    */
   includeImports?: boolean;
 };
@@ -112,10 +113,21 @@ export function parseReportFilterParams(
   return { category, stockGroup, includeImports };
 }
 
-function isBulkImportAdjustment(a: Activity): boolean {
+/**
+ * True for Crash Cart bulk imports only.
+ * Product stock-sheet updates (note like "Sep 18 2026 stock sheet") are NOT treated as bulk imports.
+ */
+function isCrashCartBulkImport(
+  a: Activity,
+  product: { category?: string | null; product?: string | null } | undefined
+): boolean {
   const user = (a.username || "").trim().toLowerCase();
   if (user !== "import") return false;
-  return BULK_IMPORT_NOTE_RE.test(a.note || "");
+  if (CRASH_CART_IMPORT_NOTE_RE.test(a.note || "")) return true;
+  const group = getStockGroup(
+    product || { category: "", product: a.product_name || "" }
+  );
+  return group === "crash_cart";
 }
 
 function isTransferFromMain(a: Activity): boolean {
@@ -172,11 +184,12 @@ function activityMatchesFilters(
   const stockGroup = opts.stockGroup ?? null;
   const category = (opts.category || "").trim() || null;
 
-  // Exclude bulk Crash Cart / stock-sheet imports unless scoped to Crash Cart or opted in
+  // Exclude Crash Cart bulk imports unless scoped to Crash Cart or opted in.
+  // Product / consumable stock-sheet lines are kept even when includeImports is false.
   if (
     !includeImports &&
     stockGroup !== "crash_cart" &&
-    isBulkImportAdjustment(a)
+    isCrashCartBulkImport(a, product)
   ) {
     return false;
   }
