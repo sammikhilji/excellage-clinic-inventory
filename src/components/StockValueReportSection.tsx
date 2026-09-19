@@ -178,8 +178,8 @@ export default function StockValueReportSection() {
         : `/api/reports/stock-value.csv?${qs}`;
     const filename =
       format === "pdf"
-        ? `stock-value-${date}.pdf`
-        : `stock-value-${date}.csv`;
+        ? `current-stock-${date}.pdf`
+        : `current-stock-${date}.csv`;
 
     try {
       const [dlRes, jsonRes] = await Promise.all([
@@ -251,14 +251,16 @@ export default function StockValueReportSection() {
 
   return (
     <section
-      id="stock-value-report"
-      className="space-y-4 report-page border-t-2 border-slate-300 pt-6 mt-6"
+      id="current-stock-report"
+      className="space-y-4 report-page"
     >
       <div className="no-print">
-        <h2 className="text-lg font-bold">Stock value report</h2>
+        <h2 className="text-lg font-bold">
+          Current stock report — qty, value, expiry
+        </h2>
         <p className="text-xs text-slate-500">
-          Clinic stock value by department — scroll below Staff stock report.
-          Live current stock (as-of date is a label only).
+          Live snapshot of what is on the shelf now (not transaction history).
+          As-of date is a label only.
         </p>
       </div>
 
@@ -410,19 +412,46 @@ export default function StockValueReportSection() {
 
       {reportReady && !loading && report && (
         <>
-          <div className="no-print grid grid-cols-2 gap-3">
-            <div className="card p-3 col-span-2">
+          <div className="no-print grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <div className="card p-3">
               <p className="text-[10px] uppercase text-slate-500 font-semibold">
-                Grand total
+                SKU lines
+              </p>
+              <p className="text-xl font-bold text-[#482980]">
+                {report.row_count}
+              </p>
+            </div>
+            <div className="card p-3">
+              <p className="text-[10px] uppercase text-slate-500 font-semibold">
+                Total qty
+              </p>
+              <p className="text-xl font-bold">{fmtQty(report.grand_qty)}</p>
+            </div>
+            <div className="card p-3">
+              <p className="text-[10px] uppercase text-slate-500 font-semibold">
+                Total value
               </p>
               <p className="text-xl font-bold text-emerald-700">
                 {formatAed(report.grand_total)}
               </p>
+            </div>
+            <div className="card p-3">
+              <p className="text-[10px] uppercase text-slate-500 font-semibold">
+                Expired / soon
+              </p>
+              <p className="text-xl font-bold">
+                <span className="text-rose-700">{report.expired_count}</span>
+                <span className="text-slate-400"> / </span>
+                <span className="text-amber-700">
+                  {report.expiring_soon_count}
+                </span>
+              </p>
+            </div>
+            <div className="card p-3 col-span-2 sm:col-span-4">
               <p className="text-[10px] text-slate-500">
                 As of {report.as_of} · {scopeLabel}
                 {generated?.location ? ` · ${generated.location}` : ""}
-                {generated?.category ? ` · ${generated.category}` : ""} ·{" "}
-                {report.row_count} lines
+                {generated?.category ? ` · ${generated.category}` : ""}
               </p>
             </div>
             {report.by_department.map((d) => (
@@ -447,57 +476,58 @@ export default function StockValueReportSection() {
           ) : (
             <div className="card overflow-hidden">
               <div className="overflow-x-auto">
-                <table className="min-w-full text-left text-xs">
-                  <thead className="bg-slate-50 text-[10px] uppercase text-slate-500">
-                    <tr>
+                <table className="min-w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="bg-[#482980] text-white uppercase tracking-wide">
                       <th className="px-3 py-2 font-semibold">Product</th>
                       <th className="px-3 py-2 font-semibold">Category</th>
                       <th className="px-3 py-2 font-semibold">Department</th>
                       <th className="px-3 py-2 font-semibold text-right">Qty</th>
                       <th className="px-3 py-2 font-semibold text-right">
-                        Unit AED
+                        Total value (AED)
                       </th>
-                      <th className="px-3 py-2 font-semibold text-right">
-                        Value AED
-                      </th>
+                      <th className="px-3 py-2 font-semibold">Expiry</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100">
+                  <tbody>
                     {report.rows.map((r, i) => (
-                      <tr key={`${r.product_id}-${r.department}-${i}`}>
-                        <td className="px-3 py-2 font-medium max-w-[10rem] truncate">
+                      <tr
+                        key={`${r.product_id}-${r.department}-${i}`}
+                        className={i % 2 === 1 ? "bg-slate-50" : "bg-white"}
+                      >
+                        <td className="px-3 py-2 font-medium max-w-[10rem] truncate border-b border-slate-100">
                           {r.product}
                         </td>
-                        <td className="px-3 py-2 text-slate-600 max-w-[8rem] truncate">
+                        <td className="px-3 py-2 text-slate-600 max-w-[8rem] truncate border-b border-slate-100">
                           {r.category}
                         </td>
-                        <td className="px-3 py-2 text-slate-600">
+                        <td className="px-3 py-2 text-slate-600 border-b border-slate-100">
                           {r.department}
                         </td>
-                        <td className="px-3 py-2 text-right tabular-nums">
+                        <td className="px-3 py-2 text-right tabular-nums border-b border-slate-100">
                           {fmtQty(r.qty)}
                         </td>
-                        <td className="px-3 py-2 text-right tabular-nums">
-                          {formatAed(r.unit_price)}
-                        </td>
-                        <td className="px-3 py-2 text-right tabular-nums font-semibold text-emerald-800">
+                        <td className="px-3 py-2 text-right tabular-nums font-semibold text-emerald-800 border-b border-slate-100">
                           {formatAed(r.line_value)}
+                        </td>
+                        <td className="px-3 py-2 whitespace-nowrap border-b border-slate-100">
+                          {r.expiry || "—"}
                         </td>
                       </tr>
                     ))}
                   </tbody>
                   <tfoot>
-                    <tr className="bg-emerald-50/80 font-bold">
+                    <tr className="bg-[#482980]/10 font-bold">
                       <td className="px-3 py-2" colSpan={3}>
                         Grand total
                       </td>
                       <td className="px-3 py-2 text-right tabular-nums">
                         {fmtQty(report.grand_qty)}
                       </td>
-                      <td className="px-3 py-2" />
                       <td className="px-3 py-2 text-right tabular-nums text-emerald-800">
                         {formatAed(report.grand_total)}
                       </td>
+                      <td className="px-3 py-2" />
                     </tr>
                   </tfoot>
                 </table>

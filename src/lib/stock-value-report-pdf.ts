@@ -26,7 +26,7 @@ function fmtMoney(n: number): string {
   });
 }
 
-/** Build a multi-page landscape stock value report PDF (table + KPI). */
+/** Build a multi-page landscape current-stock snapshot PDF (qty, value, expiry). */
 export async function stockValueReportToPdf(
   report: StockValueReport
 ): Promise<Uint8Array> {
@@ -43,12 +43,12 @@ export async function stockValueReportToPdf(
   const contentWidth = contentRight - marginX;
 
   const cols = {
-    product: { x: marginX + 4, w: 200 },
-    category: { x: marginX + 210, w: 110 },
-    dept: { x: marginX + 324, w: 120 },
-    qty: { x: marginX + 448, w: 50 },
-    price: { x: marginX + 502, w: 90 },
-    value: { x: marginX + 596, w: 100 },
+    product: { x: marginX + 4, w: 210 },
+    category: { x: marginX + 218, w: 120 },
+    dept: { x: marginX + 342, w: 130 },
+    qty: { x: marginX + 476, w: 55 },
+    value: { x: marginX + 535, w: 100 },
+    expiry: { x: marginX + 640, w: 110 },
   };
   const tableHeaderH = 18;
   const rowH = 14;
@@ -103,7 +103,7 @@ export async function stockValueReportToPdf(
       color: PURPLE_DARK,
     });
     const left = toWinAnsi(
-      `Confidential clinic inventory · Stock value · as of ${report.as_of}`
+      `Confidential clinic inventory · Current stock · as of ${report.as_of}`
     );
     p.drawText(left, {
       x: marginX,
@@ -135,8 +135,8 @@ export async function stockValueReportToPdf(
     drawTextAt("CATEGORY", cols.category.x, hy, 7, true, WHITE, cols.category.w - 2);
     drawTextAt("DEPARTMENT", cols.dept.x, hy, 7, true, WHITE, cols.dept.w - 2);
     drawTextAt("QTY", cols.qty.x, hy, 7, true, WHITE, cols.qty.w - 2);
-    drawTextAt("UNIT PRICE", cols.price.x, hy, 7, true, WHITE, cols.price.w - 2);
-    drawTextAt("LINE VALUE", cols.value.x, hy, 7, true, WHITE, cols.value.w - 2);
+    drawTextAt("TOTAL VALUE", cols.value.x, hy, 7, true, WHITE, cols.value.w - 2);
+    drawTextAt("EXPIRY", cols.expiry.x, hy, 7, true, WHITE, cols.expiry.w - 2);
     y -= tableHeaderH + 2;
   };
 
@@ -152,7 +152,7 @@ export async function stockValueReportToPdf(
       color: PURPLE_DARK,
     });
     drawTextAt(
-      `STOCK VALUE REPORT · ${report.as_of} (cont.)`,
+      `CURRENT STOCK REPORT · ${report.as_of} (cont.)`,
       marginX,
       pageHeight - 12,
       7,
@@ -176,7 +176,7 @@ export async function stockValueReportToPdf(
     color: PURPLE_DARK,
   });
   drawTextAt(
-    `STOCK VALUE REPORT · ${report.as_of}`,
+    `CURRENT STOCK REPORT · ${report.as_of}`,
     marginX,
     pageHeight - 13,
     8,
@@ -208,7 +208,7 @@ export async function stockValueReportToPdf(
     height: 28,
     color: PURPLE,
   });
-  drawTextAt("STOCK VALUE SUMMARY", marginX, y - 18, 12, true, WHITE);
+  drawTextAt("CURRENT STOCK SUMMARY", marginX, y - 18, 12, true, WHITE);
   y -= 36;
 
   drawTextAt(report.filters_label || "All locations / categories", marginX, y, 8, false, MUTED);
@@ -220,8 +220,8 @@ export async function stockValueReportToPdf(
     { value: String(report.row_count), label: "SKU LINES" },
     { value: fmtQty(report.grand_qty), label: "TOTAL QTY" },
     {
-      value: String(report.by_department.length),
-      label: "DEPARTMENTS",
+      value: `${report.expired_count} / ${report.expiring_soon_count}`,
+      label: "EXPIRED / SOON",
     },
   ];
   const gap = 8;
@@ -298,8 +298,16 @@ export async function stockValueReportToPdf(
     drawTextAt(r.category, cols.category.x, y, fontSize, false, TEXT, cols.category.w - 2);
     drawTextAt(r.department, cols.dept.x, y, fontSize, false, TEXT, cols.dept.w - 2);
     drawRight(fmtQty(r.qty), cols.qty.x + cols.qty.w - 4, y, fontSize);
-    drawRight(fmtMoney(r.unit_price), cols.price.x + cols.price.w - 4, y, fontSize);
     drawRight(fmtMoney(r.line_value), cols.value.x + cols.value.w - 4, y, fontSize, true);
+    drawTextAt(
+      r.expiry || "—",
+      cols.expiry.x,
+      y,
+      fontSize,
+      false,
+      TEXT,
+      cols.expiry.w - 2
+    );
     page.drawLine({
       start: { x: marginX, y: y - 4 },
       end: { x: contentRight, y: y - 4 },

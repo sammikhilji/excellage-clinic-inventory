@@ -20,6 +20,10 @@ export type StockValueRow = {
   qty_raw: number;
   unit_price: number;
   line_value: number;
+  /** Product expiry date string (as stored), or null. */
+  expiry: string | null;
+  /** Product status (Expired / Expiring… / OK). */
+  status: string;
   stock_group: StockGroup;
 };
 
@@ -43,6 +47,10 @@ export type StockValueReport = {
   grand_total: number;
   grand_qty: number;
   row_count: number;
+  /** Rows with status Expired. */
+  expired_count: number;
+  /** Rows expiring this month or within ≤90 days / ≤6 months. */
+  expiring_soon_count: number;
   /** Clinic locations for UI filters. */
   locations: string[];
   /** Product categories for UI filters. */
@@ -131,7 +139,7 @@ function filtersLabel(opts: {
 }
 
 /**
- * Live current stock value report (no historical reconstruction).
+ * Live current stock snapshot (qty, value, expiry — no transaction history).
  * Rows are product × department holdings with qty > 0.
  * Line value = stockValue(price, raw qty); display qty via toStockingUnits.
  * When all filters are All, grand_total matches Home totalStockValue.
@@ -179,6 +187,8 @@ export function buildStockValueReport(
       qty_raw: h.qty,
       unit_price,
       line_value,
+      expiry: p.expiry ?? null,
+      status: p.status || "OK",
       stock_group: group,
     });
   }
@@ -215,7 +225,15 @@ export function buildStockValueReport(
   const grand_qty = rows.reduce((s, r) => s + r.qty, 0);
 
   const fl = filtersLabel({ location, category, stockGroup });
-  const title = `Clinic Inventory - Stock value report · As of ${asOf} · ${fl}`;
+  const title = `Clinic Inventory - Current stock report · As of ${asOf} · ${fl}`;
+
+  const expired_count = rows.filter((r) => r.status === "Expired").length;
+  const expiring_soon_count = rows.filter(
+    (r) =>
+      r.status === "Expires this month" ||
+      r.status === "Expiring ≤90 days" ||
+      r.status === "Expiring ≤6 months"
+  ).length;
 
   return {
     as_of: asOf,
@@ -229,6 +247,8 @@ export function buildStockValueReport(
     grand_total,
     grand_qty,
     row_count: rows.length,
+    expired_count,
+    expiring_soon_count,
     locations,
     categories,
   };
@@ -263,8 +283,8 @@ export function stockValueReportToCsv(report: StockValueReport): string {
     "category",
     "department",
     "qty",
-    "unit_price_aed",
-    "line_value_aed",
+    "total_value_aed",
+    "expiry",
   ];
   lines.push(header.join(","));
   for (const r of report.rows) {
@@ -274,8 +294,8 @@ export function stockValueReportToCsv(report: StockValueReport): string {
         csvEscape(r.category),
         csvEscape(r.department),
         csvEscape(fmtQty(r.qty)),
-        csvEscape(fmtMoney(r.unit_price)),
         csvEscape(fmtMoney(r.line_value)),
+        csvEscape(r.expiry || ""),
       ].join(",")
     );
   }

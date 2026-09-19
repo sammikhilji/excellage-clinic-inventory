@@ -326,7 +326,7 @@ export default function ReportsPage() {
         <div>
           <h1 className="text-lg font-bold">Reports</h1>
           <p className="text-xs text-slate-500">
-            Staff activity and clinic stock value
+            Current stock snapshot first · staff transaction history below
           </p>
         </div>
         <Link href="/" className="text-xs font-semibold text-brand-700">
@@ -334,11 +334,17 @@ export default function ReportsPage() {
         </Link>
       </div>
 
-      <section className="space-y-4">
+      <StockValueReportSection />
+
+      <section
+        id="staff-transaction-history"
+        className="space-y-4 border-t-2 border-slate-300 pt-6 mt-6"
+      >
       <div className="no-print">
-        <h2 className="text-lg font-bold">Staff stock report</h2>
+        <h2 className="text-lg font-bold">Staff transaction history</h2>
         <p className="text-xs text-slate-500">
-          Stock added · transfers from Main Store · use / sale by staff
+          Activity log: stock added · transfers from Main Store · use / sale by
+          staff (not a current stock snapshot)
         </p>
       </div>
 
@@ -522,7 +528,7 @@ export default function ReportsPage() {
           <div className="print-only mb-4">
             <h1 className="text-xl font-bold">Clinic Inventory</h1>
             <p className="text-sm">
-              Staff stock report — {rangeLabel}
+              Staff transaction history — {rangeLabel}
             </p>
             <p className="text-xs">
               Scope: {scopeLabel}
@@ -715,7 +721,6 @@ export default function ReportsPage() {
       )}
       </section>
 
-      <StockValueReportSection />
     </div>
   );
 }
