@@ -206,7 +206,7 @@ export default function ReportsPage() {
 
     setLoading(true);
     setErr(null);
-    const qs = buildQuery();
+    const qs = `${buildQuery()}&v=2`;
     const downloadPath =
       format === "excel"
         ? `/api/reports/monthly-staff.xlsx?${qs}`
@@ -218,8 +218,11 @@ export default function ReportsPage() {
 
     try {
       const [dlRes, jsonRes] = await Promise.all([
-        fetch(downloadPath, { credentials: "include" }),
-        fetch(`/api/reports/monthly-staff?${qs}`, { credentials: "include" }),
+        fetch(downloadPath, { credentials: "include", cache: "no-store" }),
+        fetch(`/api/reports/monthly-staff?${qs}`, {
+          credentials: "include",
+          cache: "no-store",
+        }),
       ]);
 
       // Download first so failures are clear

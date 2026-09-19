@@ -218,7 +218,7 @@ export async function reportToPdf(
       color: PURPLE_DARK,
     });
     drawTextAt(
-      `STAFF STOCK REPORT · ${report.range_label} (cont.)`,
+      `STAFF STOCK REPORT (TABLE) · ${report.range_label} (cont.)`,
       marginX,
       pageHeight - 12,
       7,
@@ -307,7 +307,7 @@ export async function reportToPdf(
     color: PURPLE_DARK,
   });
   drawTextAt(
-    `STAFF STOCK REPORT · ${report.range_label}`,
+    `STAFF STOCK REPORT (TABLE) · ${report.range_label}`,
     marginX,
     pageHeight - 13,
     8,
@@ -349,8 +349,17 @@ export async function reportToPdf(
   );
   y -= 36;
 
-  // KPI strip
-  const g = report.grand_totals;
+  // KPI strip — defensive zeros if grand_totals missing
+  const ZERO_TOTALS = {
+    staff_count: 0,
+    receive_qty_sum: 0,
+    receive_count: 0,
+    transfer_qty_sum: 0,
+    transfer_count: 0,
+    consumption_qty_sum: 0,
+    consumption_count: 0,
+  };
+  const g = { ...ZERO_TOTALS, ...(report.grand_totals ?? {}) };
   const kpis: { value: string; label: string }[] = [
     { value: String(g.staff_count), label: "STAFF" },
     {

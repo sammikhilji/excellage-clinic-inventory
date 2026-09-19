@@ -171,7 +171,7 @@ export default function StockValueReportSection() {
 
     setLoading(true);
     setErr(null);
-    const qs = buildQuery();
+    const qs = `${buildQuery()}&v=2`;
     const downloadPath =
       format === "pdf"
         ? `/api/reports/stock-value.pdf?${qs}`
@@ -183,8 +183,11 @@ export default function StockValueReportSection() {
 
     try {
       const [dlRes, jsonRes] = await Promise.all([
-        fetch(downloadPath, { credentials: "include" }),
-        fetch(`/api/reports/stock-value?${qs}`, { credentials: "include" }),
+        fetch(downloadPath, { credentials: "include", cache: "no-store" }),
+        fetch(`/api/reports/stock-value?${qs}`, {
+          credentials: "include",
+          cache: "no-store",
+        }),
       ]);
 
       const ct = dlRes.headers.get("content-type") || "";
