@@ -19,6 +19,23 @@ export interface StoreData {
   locations: string[];
   /** Usernames deliberately deleted; do not re-seed from SEED_USER_DEFS. */
   removed_usernames: string[];
+  /** Last Main Store Stock Report snapshot for prev comparison. */
+  main_store_report_snapshot?: {
+    snapshot_date: string;
+    label: string;
+    rows: Array<{
+      product: string;
+      category?: string;
+      category_long?: string;
+      expiry?: string;
+      main: number;
+      ahmad: number;
+      saly: number;
+      niveen: number;
+      sassani: number;
+      total: number;
+    }>;
+  };
   nextIds: {
     products: number;
     stock: number;

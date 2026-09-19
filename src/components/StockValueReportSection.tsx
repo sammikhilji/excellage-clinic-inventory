@@ -85,6 +85,10 @@ export default function StockValueReportSection() {
   const [generated, setGenerated] = useState<GeneratedMeta | null>(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [mainLoading, setMainLoading] = useState(false);
+  const [mainErr, setMainErr] = useState<string | null>(null);
+  const [mainFormat, setMainFormat] = useState<"pdf" | "csv">("pdf");
+
 
   const filteredCategories = useMemo(() => {
     if (!scope) return allCategories;
@@ -278,20 +282,121 @@ export default function StockValueReportSection() {
   const locCols = report?.location_columns ?? [];
   const locHeaders = report?.location_headers ?? [];
 
+  const generateMainStore = useCallback(async () => {
+    setMainLoading(true);
+    setMainErr(null);
+    try {
+      const qs = new URLSearchParams();
+      if (date) qs.set("date", date);
+      const path =
+        mainFormat === "csv"
+          ? `/api/reports/main-store-stock.csv?${qs}`
+          : `/api/reports/main-store-stock.pdf?${qs}`;
+      const res = await fetch(path, { credentials: "include" });
+      if (!res.ok) {
+        let msg = `Generate failed (${res.status})`;
+        try {
+          const j = await res.json();
+          if (j?.error) msg = j.error;
+        } catch { /* ignore */ }
+        throw new Error(msg);
+      }
+      const blob = await res.blob();
+      const cd = res.headers.get("Content-Disposition") || "";
+      const m = /filename="([^"]+)"/.exec(cd);
+      const filename =
+        m?.[1] ||
+        (mainFormat === "csv"
+          ? `Main_Store_Stock_Report_${date}.csv`
+          : `Main_Store_Stock_Report_${date}.pdf`);
+      triggerBlobDownload(blob, filename);
+    } catch (e) {
+      setMainErr(e instanceof Error ? e.message : "Generate failed");
+    } finally {
+      setMainLoading(false);
+    }
+  }, [date, mainFormat]);
+
   return (
     <section
       id="current-stock-report"
       className="space-y-4 report-page"
     >
       <div className="no-print">
-        <h2 className="text-lg font-bold">
-          Current stock report — totals, value, expiry (no transactions)
+        <h2 className="text-lg font-bold text-[#5C2D91]">
+          Main Store Stock Report
         </h2>
         <p className="text-xs text-slate-500">
-          One row per product with qty by location (MAIN · AHMAD · SALY · …).
-          As-of date is a label only — stock is always live.
+          9-page purple landscape PDF: KPIs, consumption vs last snapshot,
+          holdings, priority / expiry, location &amp; category, full inventory
+          (all SKUs including OOS). Status = Normal (never OK). Crash cart
+          excluded. Saves snapshot for next comparison.
         </p>
       </div>
+
+      <div className="no-print card p-4 space-y-3 border-2 border-[#5C2D91]/40">
+        <div>
+          <label className="label" htmlFor="ms-date">
+            Snapshot date
+          </label>
+          <input
+            id="ms-date"
+            type="date"
+            className="input"
+            value={date}
+            onChange={(e) => setDate(e.target.value)}
+          />
+        </div>
+        <div>
+          <p className="label mb-1.5">Format</p>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              className={`rounded-xl border px-3 py-2.5 text-sm font-semibold ${
+                mainFormat === "pdf"
+                  ? "border-[#5C2D91] bg-purple-50 text-[#5C2D91]"
+                  : "border-slate-200 bg-white text-slate-600"
+              }`}
+              onClick={() => setMainFormat("pdf")}
+            >
+              PDF (9 pages)
+            </button>
+            <button
+              type="button"
+              className={`rounded-xl border px-3 py-2.5 text-sm font-semibold ${
+                mainFormat === "csv"
+                  ? "border-[#5C2D91] bg-purple-50 text-[#5C2D91]"
+                  : "border-slate-200 bg-white text-slate-600"
+              }`}
+              onClick={() => setMainFormat("csv")}
+            >
+              CSV (full inventory)
+            </button>
+          </div>
+        </div>
+        <button
+          type="button"
+          className="btn-primary text-sm w-full bg-[#5C2D91] hover:bg-[#4A2475]"
+          onClick={() => void generateMainStore()}
+          disabled={mainLoading || !date}
+        >
+          {mainLoading ? "Generating…" : "Generate Main Store Stock Report"}
+        </button>
+        {mainErr && <p className="text-sm text-rose-600">{mainErr}</p>}
+        <p className="text-[11px] text-slate-500">
+          Primary clinic inventory report. First run compares against the seeded
+          17 Sep 2026 count; each generate saves today&apos;s snapshot as the
+          next previous.
+        </p>
+      </div>
+
+      <details className="no-print card p-4">
+        <summary className="cursor-pointer text-sm font-semibold text-slate-700">
+          Advanced: legacy current-stock pivot (short table, OK / AED)
+        </summary>
+        <p className="mt-2 text-xs text-slate-500 mb-3">
+          Optional filtered pivot — not the Main Store 9-page report.
+        </p>
 
       <div className="no-print card p-4 space-y-3">
         <div>
@@ -447,6 +552,8 @@ export default function StockValueReportSection() {
           </p>
         )}
       </div>
+
+      </details>
 
       {loading && <p className="text-sm text-slate-500">Generating…</p>}
       {err && <p className="text-sm text-rose-600">{err}</p>}

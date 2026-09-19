@@ -1,8 +1,8 @@
 /** Shared visual theme for clinic inventory PDF reports (Main Store sample style). */
 import { rgb, type RGB } from "pdf-lib";
 
-/** Deep purple ~#482980 */
-export const PURPLE: RGB = rgb(72 / 255, 41 / 255, 128 / 255);
+/** Deep purple ~#5C2D91 */
+export const PURPLE: RGB = rgb(92 / 255, 45 / 255, 145 / 255);
 /** Slightly darker for top/bottom bars */
 export const PURPLE_DARK: RGB = rgb(55 / 255, 30 / 255, 100 / 255);
 export const WHITE: RGB = rgb(1, 1, 1);
@@ -35,5 +35,5 @@ export const A4_LANDSCAPE = { width: 841.89, height: 595.28 } as const;
 /** A4 portrait points */
 export const A4_PORTRAIT = { width: 595.28, height: 841.89 } as const;
 
-export const EXCEL_PURPLE = "482980";
+export const EXCEL_PURPLE = "5C2D91";
 export const EXCEL_ZEBRA = "F5F5F7";
