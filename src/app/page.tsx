@@ -245,7 +245,7 @@ export default function DashboardPage() {
         )}
         {canReport && (
           <Link href="/reports" className="btn-secondary w-full text-sm">
-            📊 Monthly staff report
+            📊 Stock report
           </Link>
         )}
         <Link href="/inventory" className="btn-secondary w-full text-sm">
