@@ -1,5 +1,17 @@
-import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
+import { PDFDocument, StandardFonts, type PDFPage } from "pdf-lib";
 import type { MonthlyStaffReport, ReportLine } from "./monthly-staff-report-types";
+import {
+  A4_LANDSCAPE,
+  KPI_FILLS,
+  KPI_TEXT,
+  MUTED,
+  PURPLE,
+  PURPLE_DARK,
+  ROW_LINE,
+  TEXT,
+  WHITE,
+  ZEBRA,
+} from "./report-theme";
 
 function fmtQty(n: number): string {
   return Number.isInteger(n) ? String(n) : n.toFixed(1);
@@ -24,10 +36,8 @@ export function toWinAnsi(s: string): string {
       .replace(/\u2190/g, "<-") // ←
       .replace(/\u2194/g, "<->") // ↔
       .replace(/\u2022/g, "*") // •
-      .replace(/\u00B7/g, ".") // · (keep printable; WinAnsi has it but normalize for safety)
-      // Strip / replace any remaining non-WinAnsi (keep tab/newline, printable ASCII + Latin-1 0xA0-0xFF)
+      .replace(/\u00B7/g, ".") // ·
       .replace(/[^\t\n\r\x20-\x7E\xA0-\xFF]/g, (ch) => {
-        // Try a few more known symbols
         const map: Record<string, string> = {
           "\u2248": "~",
           "\u2260": "!=",
@@ -41,7 +51,74 @@ export function toWinAnsi(s: string): string {
   );
 }
 
-/** Build a multi-page staff stock report PDF. */
+type TableRow = {
+  date: string;
+  product: string;
+  category: string;
+  qty: string;
+  location: string;
+  type: string;
+  note: string;
+};
+
+function lineLocation(r: ReportLine): string {
+  if (r.to_location) return r.to_location;
+  return r.location || "";
+}
+
+function typeLabel(kind: "receive" | "transfer" | "consumption", r: ReportLine): string {
+  if (kind === "receive") return "Stock added";
+  if (kind === "transfer") return "Transfer from Main";
+  if (r.type === "sale") return "Sale";
+  if (r.type === "consumption") return "Use / sale";
+  return r.type || "Use / sale";
+}
+
+function toRows(report: MonthlyStaffReport): { staffName: string; sub: string; rows: TableRow[] }[] {
+  return report.staff.map((s) => {
+    const rows: TableRow[] = [];
+    for (const r of s.receives) {
+      rows.push({
+        date: r.date,
+        product: r.product_name,
+        category: r.category || "",
+        qty: fmtQty(r.qty),
+        location: lineLocation(r),
+        type: typeLabel("receive", r),
+        note: r.note || "",
+      });
+    }
+    for (const t of s.transfers_from_main) {
+      rows.push({
+        date: t.date,
+        product: t.product_name,
+        category: t.category || "",
+        qty: fmtQty(t.qty),
+        location: lineLocation(t),
+        type: typeLabel("transfer", t),
+        note: t.note || "",
+      });
+    }
+    for (const c of s.consumptions) {
+      rows.push({
+        date: c.date,
+        product: c.product_name,
+        category: c.category || "",
+        qty: fmtQty(c.qty),
+        location: lineLocation(c),
+        type: typeLabel("consumption", c),
+        note: c.note || "",
+      });
+    }
+    rows.sort((a, b) => a.date.localeCompare(b.date));
+    const sub =
+      (s.username ? `@${s.username}  ·  ` : "") +
+      `+${s.totals.receive_count}/${fmtQty(s.totals.receive_qty_sum)}  <->${s.totals.transfer_count}/${fmtQty(s.totals.transfer_qty_sum)}  -${s.totals.consumption_count}/${fmtQty(s.totals.consumption_qty_sum)}`;
+    return { staffName: s.display_name, sub, rows };
+  });
+}
+
+/** Build a multi-page landscape staff stock report PDF (table layout). */
 export async function reportToPdf(
   report: MonthlyStaffReport
 ): Promise<Uint8Array> {
@@ -49,175 +126,301 @@ export async function reportToPdf(
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const fontBold = await doc.embedFont(StandardFonts.HelveticaBold);
 
-  const pageWidth = 595.28; // A4
-  const pageHeight = 841.89;
-  const margin = 40;
-  const contentWidth = pageWidth - margin * 2;
-  const fontSize = 10;
-  const titleSize = 14;
-  const headingSize = 11;
-  const lineHeight = 14;
-  const bottomLimit = margin + 20;
+  const pageWidth = A4_LANDSCAPE.width;
+  const pageHeight = A4_LANDSCAPE.height;
+  const marginX = 28;
+  const marginTop = 18;
+  const footerH = 22;
+  const bottomLimit = footerH + 10;
+  const contentRight = pageWidth - marginX;
+  const contentWidth = contentRight - marginX;
 
-  let page = doc.addPage([pageWidth, pageHeight]);
-  let y = pageHeight - margin;
-
-  const ensureSpace = (needed: number) => {
-    if (y - needed < bottomLimit) {
-      page = doc.addPage([pageWidth, pageHeight]);
-      y = pageHeight - margin;
-    }
+  // Column layout (landscape)
+  const cols = {
+    date: { x: marginX + 4, w: 88 },
+    product: { x: marginX + 94, w: 170 },
+    category: { x: marginX + 266, w: 90 },
+    qty: { x: marginX + 358, w: 40 },
+    location: { x: marginX + 400, w: 110 },
+    type: { x: marginX + 512, w: 100 },
+    note: { x: marginX + 614, w: contentWidth - 614 + marginX - 4 },
   };
+  const tableHeaderH = 18;
+  const rowH = 14;
+  const fontSize = 8;
 
-  const drawText = (
+  let page: PDFPage = doc.addPage([pageWidth, pageHeight]);
+  let y = pageHeight - marginTop;
+  let pageNum = 1;
+  const pages: PDFPage[] = [page];
+
+  const drawTextAt = (
     text: string,
     x: number,
+    yPos: number,
     size: number,
     bold = false,
-    color = rgb(0.1, 0.1, 0.15)
+    color = TEXT,
+    maxW?: number
   ) => {
     const f = bold ? fontBold : font;
-    const safe = toWinAnsi(text);
+    let safe = toWinAnsi(text);
     if (!safe) return;
-    page.drawText(safe, { x, y, size, font: f, color });
-  };
-
-  const wrapText = (text: string, maxWidth: number, size: number): string[] => {
-    const f = font;
-    const safe = toWinAnsi(text);
-    const words = safe.split(/\s+/).filter(Boolean);
-    if (words.length === 0) return [""];
-    const lines: string[] = [];
-    let current = words[0];
-    for (let i = 1; i < words.length; i++) {
-      const trial = `${current} ${words[i]}`;
-      if (f.widthOfTextAtSize(trial, size) <= maxWidth) {
-        current = trial;
-      } else {
-        lines.push(current);
-        current = words[i];
+    if (maxW != null && f.widthOfTextAtSize(safe, size) > maxW) {
+      while (safe.length > 1 && f.widthOfTextAtSize(safe + "...", size) > maxW) {
+        safe = safe.slice(0, -1);
       }
+      safe = safe + "...";
     }
-    lines.push(current);
-    return lines;
+    page.drawText(safe, { x, y: yPos, size, font: f, color });
   };
 
-  // Title
-  drawText("Clinic Inventory — Staff stock report", margin, titleSize, true);
-  y -= lineHeight + 4;
-  drawText(`Range: ${report.range_label}`, margin, fontSize);
-  y -= lineHeight;
-  const g = report.grand_totals;
-  drawText(
-    `Staff: ${g.staff_count}  ·  Stock added: ${fmtQty(g.receive_qty_sum)} (${g.receive_count})  ·  From Main: ${fmtQty(g.transfer_qty_sum)} (${g.transfer_count})  ·  Use/sale: ${fmtQty(g.consumption_qty_sum)} (${g.consumption_count})`,
-    margin,
-    9
-  );
-  y -= lineHeight + 8;
+  const drawFooter = (p: PDFPage, num: number) => {
+    p.drawRectangle({
+      x: 0,
+      y: 0,
+      width: pageWidth,
+      height: footerH,
+      color: PURPLE_DARK,
+    });
+    const left = toWinAnsi(
+      `Confidential clinic inventory · Staff stock · ${report.range_label}`
+    );
+    p.drawText(left, {
+      x: marginX,
+      y: 7,
+      size: 7,
+      font,
+      color: WHITE,
+    });
+    const right = toWinAnsi(`Page ${num}`);
+    p.drawText(right, {
+      x: pageWidth - marginX - font.widthOfTextAtSize(right, 7),
+      y: 7,
+      size: 7,
+      font,
+      color: WHITE,
+    });
+  };
 
-  // Divider
-  page.drawLine({
-    start: { x: margin, y },
-    end: { x: pageWidth - margin, y },
-    thickness: 0.5,
-    color: rgb(0.7, 0.7, 0.75),
+  const newPage = (withTableHeader = false) => {
+    drawFooter(page, pageNum);
+    page = doc.addPage([pageWidth, pageHeight]);
+    pages.push(page);
+    pageNum += 1;
+    y = pageHeight - marginTop;
+    // thin continuation top bar
+    page.drawRectangle({
+      x: 0,
+      y: pageHeight - 16,
+      width: pageWidth,
+      height: 16,
+      color: PURPLE_DARK,
+    });
+    drawTextAt(
+      `STAFF STOCK REPORT · ${report.range_label} (cont.)`,
+      marginX,
+      pageHeight - 12,
+      7,
+      true,
+      WHITE
+    );
+    y = pageHeight - 28;
+    if (withTableHeader) drawTableHeader();
+  };
+
+  const ensureSpace = (needed: number, withTableHeader = false) => {
+    if (y - needed < bottomLimit) {
+      newPage(withTableHeader);
+    }
+  };
+
+  const drawTableHeader = () => {
+    ensureSpace(tableHeaderH + 4, false);
+    page.drawRectangle({
+      x: marginX,
+      y: y - tableHeaderH + 4,
+      width: contentWidth,
+      height: tableHeaderH,
+      color: PURPLE,
+    });
+    const hy = y - 8;
+    const headers: [keyof typeof cols, string][] = [
+      ["date", "DATE"],
+      ["product", "PRODUCT"],
+      ["category", "CATEGORY"],
+      ["qty", "QTY"],
+      ["location", "LOCATION"],
+      ["type", "TYPE"],
+      ["note", "NOTE"],
+    ];
+    for (const [key, label] of headers) {
+      drawTextAt(label, cols[key].x, hy, 7, true, WHITE, cols[key].w - 2);
+    }
+    y -= tableHeaderH + 2;
+  };
+
+  const drawDataRow = (row: TableRow, zebra: boolean) => {
+    ensureSpace(rowH + 2, true);
+    if (zebra) {
+      page.drawRectangle({
+        x: marginX,
+        y: y - 3,
+        width: contentWidth,
+        height: rowH,
+        color: ZEBRA,
+      });
+    }
+    const ty = y;
+    drawTextAt(row.date, cols.date.x, ty, fontSize, false, TEXT, cols.date.w - 2);
+    drawTextAt(row.product, cols.product.x, ty, fontSize, false, TEXT, cols.product.w - 2);
+    drawTextAt(row.category, cols.category.x, ty, fontSize, false, TEXT, cols.category.w - 2);
+    // qty right-ish
+    const qtySafe = toWinAnsi(row.qty);
+    const qtyW = font.widthOfTextAtSize(qtySafe, fontSize);
+    page.drawText(qtySafe, {
+      x: cols.qty.x + cols.qty.w - qtyW - 4,
+      y: ty,
+      size: fontSize,
+      font,
+      color: TEXT,
+    });
+    drawTextAt(row.location, cols.location.x, ty, fontSize, false, TEXT, cols.location.w - 2);
+    drawTextAt(row.type, cols.type.x, ty, fontSize, false, TEXT, cols.type.w - 2);
+    drawTextAt(row.note, cols.note.x, ty, fontSize, false, MUTED, cols.note.w - 2);
+    // thin separator
+    page.drawLine({
+      start: { x: marginX, y: y - 4 },
+      end: { x: contentRight, y: y - 4 },
+      thickness: 0.3,
+      color: ROW_LINE,
+    });
+    y -= rowH;
+  };
+
+  // --- Page chrome: top bar + banner + KPIs (first page) ---
+  page.drawRectangle({
+    x: 0,
+    y: pageHeight - 18,
+    width: pageWidth,
+    height: 18,
+    color: PURPLE_DARK,
   });
-  y -= lineHeight;
+  drawTextAt(
+    `STAFF STOCK REPORT · ${report.range_label}`,
+    marginX,
+    pageHeight - 13,
+    8,
+    true,
+    WHITE
+  );
+  const todayLabel = toWinAnsi(
+    new Date().toLocaleDateString("en-AE", {
+      weekday: "long",
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+      timeZone: "Asia/Dubai",
+    })
+  );
+  page.drawText(todayLabel, {
+    x: pageWidth - marginX - font.widthOfTextAtSize(todayLabel, 8),
+    y: pageHeight - 13,
+    size: 8,
+    font,
+    color: WHITE,
+  });
+  y = pageHeight - 22;
+
+  page.drawRectangle({
+    x: 0,
+    y: y - 28,
+    width: pageWidth,
+    height: 28,
+    color: PURPLE,
+  });
+  drawTextAt(
+    `CONSUMPTION & STAFF ACTIVITY · ${report.range_label}`,
+    marginX,
+    y - 18,
+    12,
+    true,
+    WHITE
+  );
+  y -= 36;
+
+  // KPI strip
+  const g = report.grand_totals;
+  const kpis: { value: string; label: string }[] = [
+    { value: String(g.staff_count), label: "STAFF" },
+    {
+      value: `${fmtQty(g.receive_qty_sum)} (${g.receive_count})`,
+      label: "STOCK ADDED",
+    },
+    {
+      value: `${fmtQty(g.transfer_qty_sum)} (${g.transfer_count})`,
+      label: "FROM MAIN",
+    },
+    {
+      value: `${fmtQty(g.consumption_qty_sum)} (${g.consumption_count})`,
+      label: "USE / SALE",
+    },
+  ];
+  const gap = 8;
+  const cardW = (contentWidth - gap * (kpis.length - 1)) / kpis.length;
+  const cardH = 42;
+  kpis.forEach((k, i) => {
+    const x = marginX + i * (cardW + gap);
+    page.drawRectangle({
+      x,
+      y: y - cardH,
+      width: cardW,
+      height: cardH,
+      color: KPI_FILLS[i % KPI_FILLS.length],
+    });
+    const color = KPI_TEXT[i % KPI_TEXT.length];
+    const val = toWinAnsi(k.value);
+    const valSize = 14;
+    page.drawText(val, {
+      x: x + 10,
+      y: y - 20,
+      size: valSize,
+      font: fontBold,
+      color,
+    });
+    page.drawText(toWinAnsi(k.label), {
+      x: x + 10,
+      y: y - 34,
+      size: 7,
+      font: fontBold,
+      color,
+    });
+  });
+  y -= cardH + 10;
 
   if (report.staff.length === 0) {
-    ensureSpace(lineHeight);
-    drawText(
+    drawTextAt(
       "No stock additions, transfers from Main Store, or use/sale for this range.",
-      margin,
-      fontSize
+      marginX,
+      y,
+      10
     );
+    drawFooter(page, pageNum);
     return doc.save();
   }
 
-  const drawSectionHeader = (label: string) => {
-    ensureSpace(lineHeight + 4);
-    drawText(label, margin, headingSize - 1, true, rgb(0.2, 0.25, 0.4));
-    y -= lineHeight;
-  };
-
-  const drawLineRow = (parts: string[]) => {
-    const text = parts.filter(Boolean).join("  ·  ");
-    const lines = wrapText(text, contentWidth, fontSize);
-    for (const ln of lines) {
-      ensureSpace(lineHeight);
-      drawText(ln, margin + 8, fontSize);
-      y -= lineHeight;
-    }
-  };
-
-  const lineLocation = (r: ReportLine): string => {
-    if (r.to_location) return `→ ${r.to_location}`;
-    return r.location || "";
-  };
-
-  for (const s of report.staff) {
-    ensureSpace(lineHeight * 4);
-    drawText(s.display_name, margin, headingSize, true);
-    y -= lineHeight;
-    const sub =
-      (s.username ? `@${s.username}  ·  ` : "") +
-      `+${s.totals.receive_count}/${fmtQty(s.totals.receive_qty_sum)}  ↔${s.totals.transfer_count}/${fmtQty(s.totals.transfer_qty_sum)}  −${s.totals.consumption_count}/${fmtQty(s.totals.consumption_qty_sum)}`;
-    drawText(sub, margin, 9, false, rgb(0.35, 0.35, 0.4));
-    y -= lineHeight + 2;
-
-    if (s.receives.length > 0) {
-      drawSectionHeader("Stock added (receives)");
-      for (const r of s.receives) {
-        drawLineRow([
-          r.date,
-          r.product_name,
-          `qty ${fmtQty(r.qty)}`,
-          lineLocation(r),
-          r.note || "",
-        ]);
-      }
-      y -= 4;
-    }
-
-    if (s.transfers_from_main.length > 0) {
-      drawSectionHeader("Transfers from Main Store");
-      for (const t of s.transfers_from_main) {
-        drawLineRow([
-          t.date,
-          t.product_name,
-          `qty ${fmtQty(t.qty)}`,
-          lineLocation(t),
-          t.note || "",
-        ]);
-      }
-      y -= 4;
-    }
-
-    if (s.consumptions.length > 0) {
-      drawSectionHeader("Consumptions / sales");
-      for (const c of s.consumptions) {
-        drawLineRow([
-          c.date,
-          c.product_name,
-          `qty ${fmtQty(c.qty)}`,
-          lineLocation(c),
-          c.type || "",
-          c.note || "",
-        ]);
-      }
-      y -= 4;
-    }
-
-    y -= 6;
-    ensureSpace(8);
-    page.drawLine({
-      start: { x: margin, y },
-      end: { x: pageWidth - margin, y },
-      thickness: 0.4,
-      color: rgb(0.85, 0.85, 0.88),
-    });
-    y -= lineHeight;
+  const groups = toRows(report);
+  for (const group of groups) {
+    ensureSpace(tableHeaderH + rowH * 2 + 28, false);
+    drawTextAt(group.staffName, marginX, y, 11, true, PURPLE);
+    y -= 12;
+    drawTextAt(group.sub, marginX, y, 8, false, MUTED);
+    y -= 14;
+    drawTableHeader();
+    group.rows.forEach((row, i) => drawDataRow(row, i % 2 === 1));
+    y -= 10;
   }
 
+  drawFooter(page, pageNum);
   return doc.save();
 }

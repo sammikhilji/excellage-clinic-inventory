@@ -255,12 +255,14 @@ export function buildMonthlyStaffReport(
     const product_name =
       product?.product || a.product_name || `Product #${a.product_id}`;
     const barcode = product?.barcode || a.barcode || "";
+    const category = (product?.category || "").trim();
 
     if (isReceive(a)) {
       const bucket = ensure(key, username);
       bucket.receives.push({
         date: a.created_at,
         product_name,
+        category,
         barcode,
         qty: a.qty,
         location: a.location,
@@ -272,6 +274,7 @@ export function buildMonthlyStaffReport(
       bucket.transfers_from_main.push({
         date: a.created_at,
         product_name,
+        category,
         barcode,
         qty: a.qty,
         to_location: parseToLocation(a.location),
@@ -282,6 +285,7 @@ export function buildMonthlyStaffReport(
       bucket.consumptions.push({
         date: a.created_at,
         product_name,
+        category,
         barcode,
         qty: a.qty,
         location: a.location,
@@ -390,9 +394,10 @@ export function reportToCsv(report: MonthlyStaffReport): string {
   const header = [
     "staff_display_name",
     "username",
-    "category",
+    "activity",
     "date",
     "product_name",
+    "product_category",
     "barcode",
     "qty",
     "to_location",
@@ -410,6 +415,7 @@ export function reportToCsv(report: MonthlyStaffReport): string {
           "stock_added",
           csvEscape(r.date),
           csvEscape(r.product_name),
+          csvEscape(r.category),
           csvEscape(r.barcode),
           csvEscape(r.qty),
           "",
@@ -427,6 +433,7 @@ export function reportToCsv(report: MonthlyStaffReport): string {
           "transfer_from_main",
           csvEscape(t.date),
           csvEscape(t.product_name),
+          csvEscape(t.category),
           csvEscape(t.barcode),
           csvEscape(t.qty),
           csvEscape(t.to_location),
@@ -444,6 +451,7 @@ export function reportToCsv(report: MonthlyStaffReport): string {
           "consumption_or_sale",
           csvEscape(c.date),
           csvEscape(c.product_name),
+          csvEscape(c.category),
           csvEscape(c.barcode),
           csvEscape(c.qty),
           "",
@@ -457,7 +465,7 @@ export function reportToCsv(report: MonthlyStaffReport): string {
   return lines.join("\n") + "\n";
 }
 
-/** Real .xlsx workbook with the same columns as CSV. */
+/** Real .xlsx workbook: table columns matching the staff PDF. */
 export async function reportToXlsx(
   report: MonthlyStaffReport
 ): Promise<Buffer> {
@@ -465,112 +473,153 @@ export async function reportToXlsx(
   wb.creator = "Clinic Inventory";
   wb.created = new Date();
 
+  const PURPLE = "482980";
+  const ZEBRA = "F5F5F7";
+
   const sheet = wb.addWorksheet("Staff stock", {
     views: [{ state: "frozen", ySplit: 1 }],
   });
 
   sheet.columns = [
-    { header: "staff_display_name", key: "staff_display_name", width: 22 },
-    { header: "username", key: "username", width: 14 },
-    { header: "category", key: "category", width: 18 },
-    { header: "date", key: "date", width: 20 },
-    { header: "product_name", key: "product_name", width: 36 },
-    { header: "barcode", key: "barcode", width: 14 },
-    { header: "qty", key: "qty", width: 10 },
-    { header: "to_location", key: "to_location", width: 16 },
-    { header: "location", key: "location", width: 20 },
-    { header: "type", key: "type", width: 12 },
-    { header: "note", key: "note", width: 40 },
+    { header: "Staff", key: "staff", width: 22 },
+    { header: "Date", key: "date", width: 20 },
+    { header: "Product", key: "product", width: 36 },
+    { header: "Category", key: "category", width: 18 },
+    { header: "Qty", key: "qty", width: 10 },
+    { header: "Location", key: "location", width: 22 },
+    { header: "Type", key: "type", width: 18 },
+    { header: "Note", key: "note", width: 40 },
   ];
 
   const headerRow = sheet.getRow(1);
-  headerRow.font = { bold: true };
-  headerRow.alignment = { vertical: "middle" };
+  headerRow.font = { bold: true, color: { argb: "FFFFFFFF" } };
+  headerRow.fill = {
+    type: "pattern",
+    pattern: "solid",
+    fgColor: { argb: `FF${PURPLE}` },
+  };
+  headerRow.alignment = { vertical: "middle", horizontal: "center" };
+  headerRow.height = 20;
+
+  const pushRow = (
+    staff: string,
+    date: string,
+    product: string,
+    category: string,
+    qty: number,
+    location: string,
+    type: string,
+    note: string
+  ) => {
+    const row = sheet.addRow({
+      staff,
+      date,
+      product,
+      category,
+      qty,
+      location,
+      type,
+      note,
+    });
+    const idx = row.number;
+    if (idx % 2 === 0) {
+      row.fill = {
+        type: "pattern",
+        pattern: "solid",
+        fgColor: { argb: `FF${ZEBRA}` },
+      };
+    }
+    row.getCell("qty").alignment = { horizontal: "right" };
+  };
 
   for (const s of report.staff) {
     for (const r of s.receives) {
-      sheet.addRow({
-        staff_display_name: s.display_name,
-        username: s.username ?? "",
-        category: "stock_added",
-        date: r.date,
-        product_name: r.product_name,
-        barcode: r.barcode,
-        qty: r.qty,
-        to_location: "",
-        location: r.location ?? "",
-        type: "receive",
-        note: r.note ?? "",
-      });
+      pushRow(
+        s.display_name,
+        r.date,
+        r.product_name,
+        r.category || "",
+        r.qty,
+        r.location ?? "",
+        "Stock added",
+        r.note ?? ""
+      );
     }
     for (const t of s.transfers_from_main) {
-      sheet.addRow({
-        staff_display_name: s.display_name,
-        username: s.username ?? "",
-        category: "transfer_from_main",
-        date: t.date,
-        product_name: t.product_name,
-        barcode: t.barcode,
-        qty: t.qty,
-        to_location: t.to_location ?? "",
-        location: "",
-        type: "transfer",
-        note: t.note ?? "",
-      });
+      pushRow(
+        s.display_name,
+        t.date,
+        t.product_name,
+        t.category || "",
+        t.qty,
+        t.to_location ?? "",
+        "Transfer from Main",
+        t.note ?? ""
+      );
     }
     for (const c of s.consumptions) {
-      sheet.addRow({
-        staff_display_name: s.display_name,
-        username: s.username ?? "",
-        category: "consumption_or_sale",
-        date: c.date,
-        product_name: c.product_name,
-        barcode: c.barcode,
-        qty: c.qty,
-        to_location: "",
-        location: c.location ?? "",
-        type: c.type ?? "",
-        note: c.note ?? "",
-      });
+      const typeLabel =
+        c.type === "sale"
+          ? "Sale"
+          : c.type === "consumption"
+            ? "Use / sale"
+            : c.type || "Use / sale";
+      pushRow(
+        s.display_name,
+        c.date,
+        c.product_name,
+        c.category || "",
+        c.qty,
+        c.location ?? "",
+        typeLabel,
+        c.note ?? ""
+      );
     }
   }
 
   const summary = wb.addWorksheet("Summary");
   summary.columns = [
-    { header: "metric", key: "metric", width: 24 },
-    { header: "value", key: "value", width: 40 },
+    { header: "Metric", key: "metric", width: 24 },
+    { header: "Value", key: "value", width: 40 },
   ];
-  summary.getRow(1).font = { bold: true };
-  summary.addRow({ metric: "range", value: report.range_label });
+  const sumHeader = summary.getRow(1);
+  sumHeader.font = { bold: true, color: { argb: "FFFFFFFF" } };
+  sumHeader.fill = {
+    type: "pattern",
+    pattern: "solid",
+    fgColor: { argb: `FF${PURPLE}` },
+  };
+  summary.addRow({ metric: "Range", value: report.range_label });
   summary.addRow({
-    metric: "staff_count",
+    metric: "Staff count",
     value: report.grand_totals.staff_count,
   });
   summary.addRow({
-    metric: "receive_qty_sum",
+    metric: "Stock added (qty)",
     value: report.grand_totals.receive_qty_sum,
   });
   summary.addRow({
-    metric: "receive_count",
+    metric: "Stock added (lines)",
     value: report.grand_totals.receive_count,
   });
   summary.addRow({
-    metric: "transfer_qty_sum",
+    metric: "Transfers from Main (qty)",
     value: report.grand_totals.transfer_qty_sum,
   });
   summary.addRow({
-    metric: "transfer_count",
+    metric: "Transfers from Main (lines)",
     value: report.grand_totals.transfer_count,
   });
   summary.addRow({
-    metric: "consumption_qty_sum",
+    metric: "Use / sale (qty)",
     value: report.grand_totals.consumption_qty_sum,
   });
   summary.addRow({
-    metric: "consumption_count",
+    metric: "Use / sale (lines)",
     value: report.grand_totals.consumption_count,
   });
 
   const buf = await wb.xlsx.writeBuffer();
   return Buffer.from(buf);
 }
+

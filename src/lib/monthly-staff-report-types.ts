@@ -9,6 +9,8 @@ export const REPORT_ALLOWED_ROLES: UserRole[] = [
 export type ReportLine = {
   date: string;
   product_name: string;
+  /** Product category (from catalog); empty if unknown */
+  category: string;
   barcode: string;
   qty: number;
   to_location?: string;

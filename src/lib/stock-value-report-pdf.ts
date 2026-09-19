@@ -1,6 +1,18 @@
-import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
+import { PDFDocument, StandardFonts, type PDFPage } from "pdf-lib";
 import { toWinAnsi } from "./monthly-staff-report-pdf";
 import type { StockValueReport } from "./stock-value-report";
+import {
+  A4_LANDSCAPE,
+  KPI_FILLS,
+  KPI_TEXT,
+  MUTED,
+  PURPLE,
+  PURPLE_DARK,
+  ROW_LINE,
+  TEXT,
+  WHITE,
+  ZEBRA,
+} from "./report-theme";
 
 function fmtQty(n: number): string {
   if (Number.isInteger(n)) return String(n);
@@ -14,7 +26,7 @@ function fmtMoney(n: number): string {
   });
 }
 
-/** Build a multi-page stock value report PDF (WinAnsi-safe). */
+/** Build a multi-page landscape stock value report PDF (table + KPI). */
 export async function stockValueReportToPdf(
   report: StockValueReport
 ): Promise<Uint8Array> {
@@ -22,167 +34,330 @@ export async function stockValueReportToPdf(
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const fontBold = await doc.embedFont(StandardFonts.HelveticaBold);
 
-  const pageWidth = 595.28; // A4
-  const pageHeight = 841.89;
-  const margin = 36;
-  const fontSize = 8;
-  const titleSize = 12;
-  const lineHeight = 11;
-  const bottomLimit = margin + 24;
+  const pageWidth = A4_LANDSCAPE.width;
+  const pageHeight = A4_LANDSCAPE.height;
+  const marginX = 28;
+  const footerH = 22;
+  const bottomLimit = footerH + 10;
+  const contentRight = pageWidth - marginX;
+  const contentWidth = contentRight - marginX;
 
-  // Column x positions
-  const col = {
-    product: margin,
-    category: margin + 150,
-    dept: margin + 250,
-    qty: margin + 340,
-    price: margin + 390,
-    value: margin + 460,
+  const cols = {
+    product: { x: marginX + 4, w: 200 },
+    category: { x: marginX + 210, w: 110 },
+    dept: { x: marginX + 324, w: 120 },
+    qty: { x: marginX + 448, w: 50 },
+    price: { x: marginX + 502, w: 90 },
+    value: { x: marginX + 596, w: 100 },
   };
-  const productMaxW = 145;
-  const categoryMaxW = 95;
-  const deptMaxW = 85;
+  const tableHeaderH = 18;
+  const rowH = 14;
+  const fontSize = 8;
 
-  let page = doc.addPage([pageWidth, pageHeight]);
-  let y = pageHeight - margin;
+  let page: PDFPage = doc.addPage([pageWidth, pageHeight]);
+  let y = pageHeight - 18;
   let pageNum = 1;
 
-  const ensureSpace = (needed: number) => {
-    if (y - needed < bottomLimit) {
-      drawFooter();
-      page = doc.addPage([pageWidth, pageHeight]);
-      pageNum += 1;
-      y = pageHeight - margin;
-      drawTableHeader();
-    }
-  };
-
-  const drawText = (
+  const drawTextAt = (
     text: string,
     x: number,
+    yPos: number,
     size: number,
     bold = false,
-    color = rgb(0.1, 0.1, 0.15)
+    color = TEXT,
+    maxW?: number
+  ) => {
+    const f = bold ? fontBold : font;
+    let safe = toWinAnsi(text);
+    if (!safe) return;
+    if (maxW != null && f.widthOfTextAtSize(safe, size) > maxW) {
+      while (safe.length > 1 && f.widthOfTextAtSize(safe + "...", size) > maxW) {
+        safe = safe.slice(0, -1);
+      }
+      safe = safe + "...";
+    }
+    page.drawText(safe, { x, y: yPos, size, font: f, color });
+  };
+
+  const drawRight = (
+    text: string,
+    rightX: number,
+    yPos: number,
+    size: number,
+    bold = false,
+    color = TEXT
   ) => {
     const f = bold ? fontBold : font;
     const safe = toWinAnsi(text);
     if (!safe) return;
-    page.drawText(safe, { x, y, size, font: f, color });
+    const w = f.widthOfTextAtSize(safe, size);
+    page.drawText(safe, { x: rightX - w, y: yPos, size, font: f, color });
   };
 
-  const truncate = (text: string, maxWidth: number, size: number): string => {
-    const f = font;
-    const safe = toWinAnsi(text);
-    if (f.widthOfTextAtSize(safe, size) <= maxWidth) return safe;
-    let s = safe;
-    while (s.length > 1 && f.widthOfTextAtSize(s + "...", size) > maxWidth) {
-      s = s.slice(0, -1);
-    }
-    return s + "...";
-  };
-
-  const drawFooter = () => {
-    const label = toWinAnsi(`Page ${pageNum}`);
-    page.drawText(label, {
-      x: pageWidth - margin - font.widthOfTextAtSize(label, 8),
-      y: margin - 8,
-      size: 8,
+  const drawFooter = (p: PDFPage, num: number) => {
+    p.drawRectangle({
+      x: 0,
+      y: 0,
+      width: pageWidth,
+      height: footerH,
+      color: PURPLE_DARK,
+    });
+    const left = toWinAnsi(
+      `Confidential clinic inventory · Stock value · as of ${report.as_of}`
+    );
+    p.drawText(left, {
+      x: marginX,
+      y: 7,
+      size: 7,
       font,
-      color: rgb(0.5, 0.5, 0.55),
+      color: WHITE,
+    });
+    const right = toWinAnsi(`Page ${num}`);
+    p.drawText(right, {
+      x: pageWidth - marginX - font.widthOfTextAtSize(right, 7),
+      y: 7,
+      size: 7,
+      font,
+      color: WHITE,
     });
   };
 
   const drawTableHeader = () => {
-    ensureSpace(lineHeight * 2);
-    drawText("Product", col.product, fontSize, true);
-    drawText("Category", col.category, fontSize, true);
-    drawText("Department", col.dept, fontSize, true);
-    drawText("Qty", col.qty, fontSize, true);
-    drawText("Unit AED", col.price, fontSize, true);
-    drawText("Value AED", col.value, fontSize, true);
-    y -= 4;
-    page.drawLine({
-      start: { x: margin, y },
-      end: { x: pageWidth - margin, y },
-      thickness: 0.6,
-      color: rgb(0.6, 0.6, 0.65),
+    page.drawRectangle({
+      x: marginX,
+      y: y - tableHeaderH + 4,
+      width: contentWidth,
+      height: tableHeaderH,
+      color: PURPLE,
     });
-    y -= lineHeight;
+    const hy = y - 8;
+    drawTextAt("PRODUCT", cols.product.x, hy, 7, true, WHITE, cols.product.w - 2);
+    drawTextAt("CATEGORY", cols.category.x, hy, 7, true, WHITE, cols.category.w - 2);
+    drawTextAt("DEPARTMENT", cols.dept.x, hy, 7, true, WHITE, cols.dept.w - 2);
+    drawTextAt("QTY", cols.qty.x, hy, 7, true, WHITE, cols.qty.w - 2);
+    drawTextAt("UNIT PRICE", cols.price.x, hy, 7, true, WHITE, cols.price.w - 2);
+    drawTextAt("LINE VALUE", cols.value.x, hy, 7, true, WHITE, cols.value.w - 2);
+    y -= tableHeaderH + 2;
   };
 
-  // Title
-  drawText("Clinic Inventory - Stock value report", margin, titleSize, true);
-  y -= lineHeight + 2;
-  drawText(`As of ${report.as_of}`, margin, 9);
-  y -= lineHeight;
-  drawText(report.filters_label, margin, 8, false, rgb(0.35, 0.35, 0.4));
-  y -= lineHeight;
-  drawText(
-    `Grand total: AED ${fmtMoney(report.grand_total)}  ·  ${report.row_count} lines  ·  Qty ${fmtQty(report.grand_qty)}`,
-    margin,
-    9,
+  const newPage = (withHeader: boolean) => {
+    drawFooter(page, pageNum);
+    page = doc.addPage([pageWidth, pageHeight]);
+    pageNum += 1;
+    page.drawRectangle({
+      x: 0,
+      y: pageHeight - 16,
+      width: pageWidth,
+      height: 16,
+      color: PURPLE_DARK,
+    });
+    drawTextAt(
+      `STOCK VALUE REPORT · ${report.as_of} (cont.)`,
+      marginX,
+      pageHeight - 12,
+      7,
+      true,
+      WHITE
+    );
+    y = pageHeight - 28;
+    if (withHeader) drawTableHeader();
+  };
+
+  const ensureSpace = (needed: number, withHeader = false) => {
+    if (y - needed < bottomLimit) newPage(withHeader);
+  };
+
+  // Top bar
+  page.drawRectangle({
+    x: 0,
+    y: pageHeight - 18,
+    width: pageWidth,
+    height: 18,
+    color: PURPLE_DARK,
+  });
+  drawTextAt(
+    `STOCK VALUE REPORT · ${report.as_of}`,
+    marginX,
+    pageHeight - 13,
+    8,
     true,
-    rgb(0.05, 0.35, 0.2)
+    WHITE
   );
-  y -= lineHeight + 6;
+  const todayLabel = toWinAnsi(
+    new Date().toLocaleDateString("en-AE", {
+      weekday: "long",
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+      timeZone: "Asia/Dubai",
+    })
+  );
+  page.drawText(todayLabel, {
+    x: pageWidth - marginX - font.widthOfTextAtSize(todayLabel, 8),
+    y: pageHeight - 13,
+    size: 8,
+    font,
+    color: WHITE,
+  });
+  y = pageHeight - 22;
+
+  page.drawRectangle({
+    x: 0,
+    y: y - 28,
+    width: pageWidth,
+    height: 28,
+    color: PURPLE,
+  });
+  drawTextAt("STOCK VALUE SUMMARY", marginX, y - 18, 12, true, WHITE);
+  y -= 36;
+
+  drawTextAt(report.filters_label || "All locations / categories", marginX, y, 8, false, MUTED);
+  y -= 14;
+
+  // KPI cards
+  const kpis = [
+    { value: `AED ${fmtMoney(report.grand_total)}`, label: "TOTAL VALUE" },
+    { value: String(report.row_count), label: "SKU LINES" },
+    { value: fmtQty(report.grand_qty), label: "TOTAL QTY" },
+    {
+      value: String(report.by_department.length),
+      label: "DEPARTMENTS",
+    },
+  ];
+  const gap = 8;
+  const cardW = (contentWidth - gap * (kpis.length - 1)) / kpis.length;
+  const cardH = 42;
+  kpis.forEach((k, i) => {
+    const x = marginX + i * (cardW + gap);
+    page.drawRectangle({
+      x,
+      y: y - cardH,
+      width: cardW,
+      height: cardH,
+      color: KPI_FILLS[i % KPI_FILLS.length],
+    });
+    const color = KPI_TEXT[i % KPI_TEXT.length];
+    page.drawText(toWinAnsi(k.value), {
+      x: x + 10,
+      y: y - 20,
+      size: 12,
+      font: fontBold,
+      color,
+    });
+    page.drawText(toWinAnsi(k.label), {
+      x: x + 10,
+      y: y - 34,
+      size: 7,
+      font: fontBold,
+      color,
+    });
+  });
+  y -= cardH + 12;
 
   if (report.rows.length === 0) {
-    drawText("No stock with quantity greater than zero for these filters.", margin, 10);
-    drawFooter();
+    drawTextAt(
+      "No stock with quantity greater than zero for these filters.",
+      marginX,
+      y,
+      10
+    );
+    drawFooter(page, pageNum);
     return doc.save();
   }
 
   drawTableHeader();
 
   let lastDept = "";
+  let rowIndex = 0;
   for (const r of report.rows) {
     if (r.department !== lastDept) {
       lastDept = r.department;
-      ensureSpace(lineHeight + 4);
-      drawText(r.department, margin, 9, true, rgb(0.15, 0.25, 0.45));
-      y -= lineHeight;
+      ensureSpace(rowH + tableHeaderH, true);
+      page.drawRectangle({
+        x: marginX,
+        y: y - 3,
+        width: contentWidth,
+        height: rowH,
+        color: KPI_FILLS[0],
+      });
+      drawTextAt(r.department, marginX + 4, y, 8, true, PURPLE, contentWidth - 8);
+      y -= rowH;
     }
-    ensureSpace(lineHeight);
-    drawText(truncate(r.product, productMaxW, fontSize), col.product, fontSize);
-    drawText(truncate(r.category, categoryMaxW, fontSize), col.category, fontSize);
-    drawText(truncate(r.department, deptMaxW, fontSize), col.dept, fontSize);
-    drawText(fmtQty(r.qty), col.qty, fontSize);
-    drawText(fmtMoney(r.unit_price), col.price, fontSize);
-    drawText(fmtMoney(r.line_value), col.value, fontSize);
-    y -= lineHeight;
+    ensureSpace(rowH + 2, true);
+    const zebra = rowIndex % 2 === 1;
+    if (zebra) {
+      page.drawRectangle({
+        x: marginX,
+        y: y - 3,
+        width: contentWidth,
+        height: rowH,
+        color: ZEBRA,
+      });
+    }
+    drawTextAt(r.product, cols.product.x, y, fontSize, false, TEXT, cols.product.w - 2);
+    drawTextAt(r.category, cols.category.x, y, fontSize, false, TEXT, cols.category.w - 2);
+    drawTextAt(r.department, cols.dept.x, y, fontSize, false, TEXT, cols.dept.w - 2);
+    drawRight(fmtQty(r.qty), cols.qty.x + cols.qty.w - 4, y, fontSize);
+    drawRight(fmtMoney(r.unit_price), cols.price.x + cols.price.w - 4, y, fontSize);
+    drawRight(fmtMoney(r.line_value), cols.value.x + cols.value.w - 4, y, fontSize, true);
+    page.drawLine({
+      start: { x: marginX, y: y - 4 },
+      end: { x: contentRight, y: y - 4 },
+      thickness: 0.3,
+      color: ROW_LINE,
+    });
+    y -= rowH;
+    rowIndex += 1;
   }
 
-  // Department subtotals
-  y -= 6;
-  ensureSpace(lineHeight * (report.by_department.length + 4));
-  page.drawLine({
-    start: { x: margin, y },
-    end: { x: pageWidth - margin, y },
-    thickness: 0.5,
-    color: rgb(0.7, 0.7, 0.75),
-  });
-  y -= lineHeight;
-  drawText("Subtotals by department", margin, 10, true);
-  y -= lineHeight;
-  for (const d of report.by_department) {
-    ensureSpace(lineHeight);
-    drawText(
-      `${d.department}:  AED ${fmtMoney(d.value_sum)}  (${d.line_count} lines, qty ${fmtQty(d.qty_sum)})`,
-      margin + 8,
-      fontSize
-    );
-    y -= lineHeight;
-  }
+  // Totals row
+  ensureSpace(rowH * 2 + 8, false);
   y -= 4;
-  ensureSpace(lineHeight);
-  drawText(
-    `GRAND TOTAL: AED ${fmtMoney(report.grand_total)}`,
-    margin,
-    11,
+  page.drawRectangle({
+    x: marginX,
+    y: y - 3,
+    width: contentWidth,
+    height: rowH + 4,
+    color: PURPLE,
+  });
+  drawTextAt("GRAND TOTAL", cols.product.x, y, 9, true, WHITE);
+  drawRight(
+    fmtQty(report.grand_qty),
+    cols.qty.x + cols.qty.w - 4,
+    y,
+    9,
     true,
-    rgb(0.05, 0.35, 0.2)
+    WHITE
   );
+  drawRight(
+    `AED ${fmtMoney(report.grand_total)}`,
+    cols.value.x + cols.value.w - 4,
+    y,
+    9,
+    true,
+    WHITE
+  );
+  y -= rowH + 10;
 
-  drawFooter();
+  if (report.by_department.length > 0) {
+    ensureSpace(rowH * (report.by_department.length + 2), false);
+    drawTextAt("Subtotals by department", marginX, y, 9, true, PURPLE);
+    y -= rowH;
+    for (const d of report.by_department) {
+      ensureSpace(rowH, false);
+      drawTextAt(
+        `${d.department}:  AED ${fmtMoney(d.value_sum)}  (${d.line_count} lines, qty ${fmtQty(d.qty_sum)})`,
+        marginX + 8,
+        y,
+        fontSize,
+        false,
+        TEXT,
+        contentWidth - 16
+      );
+      y -= rowH;
+    }
+  }
+
+  drawFooter(page, pageNum);
   return doc.save();
 }

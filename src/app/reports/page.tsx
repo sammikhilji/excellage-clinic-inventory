@@ -40,6 +40,21 @@ function fmtQty(n: number) {
   return Number.isInteger(n) ? String(n) : n.toFixed(1);
 }
 
+function lineLoc(r: { to_location?: string; location?: string }) {
+  return r.to_location || r.location || "—";
+}
+
+function activityType(
+  kind: "receive" | "transfer" | "consumption",
+  type?: string
+) {
+  if (kind === "receive") return "Stock added";
+  if (kind === "transfer") return "Transfer from Main";
+  if (type === "sale") return "Sale";
+  if (type === "consumption") return "Use / sale";
+  return type || "Use / sale";
+}
+
 function dateLine(createdAt: string): string {
   const t = timeOnly(createdAt);
   return t ? `${formatDateLabel(createdAt)} · ${t}` : formatDateLabel(createdAt);
@@ -577,138 +592,120 @@ export default function ReportsPage() {
             </p>
           ) : (
             <div className="space-y-4">
-              {report.staff.map((s) => (
-                <section
-                  key={s.username ?? "__unknown__"}
-                  className="card p-4 break-inside-avoid"
-                >
-                  <div className="mb-3 flex items-start justify-between gap-2">
-                    <div>
-                      <h3 className="font-bold text-base">{s.display_name}</h3>
-                      {s.username ? (
-                        <p className="text-xs text-slate-500">@{s.username}</p>
-                      ) : (
-                        <p className="text-xs text-amber-700">
-                          Older rows without login username
-                        </p>
-                      )}
-                    </div>
-                    <div className="text-right text-[10px] text-slate-500 leading-tight">
-                      <div>
-                        + {s.totals.receive_count} · qty{" "}
-                        {fmtQty(s.totals.receive_qty_sum)}
-                      </div>
-                      <div>
-                        ↔ {s.totals.transfer_count} · qty{" "}
-                        {fmtQty(s.totals.transfer_qty_sum)}
-                      </div>
-                      <div>
-                        − {s.totals.consumption_count} · qty{" "}
-                        {fmtQty(s.totals.consumption_qty_sum)}
-                      </div>
-                    </div>
-                  </div>
+              {report.staff.map((s) => {
+                const rows = [
+                  ...s.receives.map((r, i) => ({
+                    key: `r-${i}-${r.date}`,
+                    date: r.date,
+                    product: r.product_name,
+                    category: r.category || "—",
+                    qty: fmtQty(r.qty),
+                    location: lineLoc(r),
+                    type: activityType("receive", r.type),
+                    note: r.note || "",
+                  })),
+                  ...s.transfers_from_main.map((t, i) => ({
+                    key: `t-${i}-${t.date}`,
+                    date: t.date,
+                    product: t.product_name,
+                    category: t.category || "—",
+                    qty: fmtQty(t.qty),
+                    location: lineLoc(t),
+                    type: activityType("transfer", t.type),
+                    note: t.note || "",
+                  })),
+                  ...s.consumptions.map((c, i) => ({
+                    key: `c-${i}-${c.date}`,
+                    date: c.date,
+                    product: c.product_name,
+                    category: c.category || "—",
+                    qty: fmtQty(c.qty),
+                    location: lineLoc(c),
+                    type: activityType("consumption", c.type),
+                    note: c.note || "",
+                  })),
+                ].sort((a, b) => a.date.localeCompare(b.date));
 
-                  {s.receives.length > 0 && (
-                    <div className="mb-3">
-                      <h4 className="text-xs font-semibold uppercase tracking-wide text-emerald-700 mb-1.5">
-                        Stock added
-                      </h4>
-                      <ul className="divide-y divide-slate-100 rounded-xl border border-slate-100 overflow-hidden">
-                        {s.receives.map((r, i) => (
-                          <li
-                            key={`r-${i}-${r.date}`}
-                            className="bg-emerald-50/60 px-3 py-2 text-sm"
-                          >
-                            <div className="flex justify-between gap-2">
-                              <span className="font-medium truncate">
-                                {r.product_name}
-                              </span>
-                              <span className="font-semibold text-emerald-700 shrink-0">
-                                {fmtQty(r.qty)}
-                              </span>
-                            </div>
-                            <p className="text-[11px] font-medium text-slate-700">
-                              {dateLine(r.date)}
-                            </p>
-                            <p className="text-[11px] text-slate-500">
-                              {r.location || "—"}
-                              {r.barcode ? ` · ${r.barcode}` : ""}
-                              {r.note ? ` · ${r.note}` : ""}
-                            </p>
-                          </li>
-                        ))}
-                      </ul>
+                return (
+                  <section
+                    key={s.username ?? "__unknown__"}
+                    className="card p-4 break-inside-avoid overflow-x-auto"
+                  >
+                    <div className="mb-3 flex items-start justify-between gap-2">
+                      <div>
+                        <h3 className="font-bold text-base">{s.display_name}</h3>
+                        {s.username ? (
+                          <p className="text-xs text-slate-500">@{s.username}</p>
+                        ) : (
+                          <p className="text-xs text-amber-700">
+                            Older rows without login username
+                          </p>
+                        )}
+                      </div>
+                      <div className="text-right text-[10px] text-slate-500 leading-tight">
+                        <div>
+                          + {s.totals.receive_count} · qty{" "}
+                          {fmtQty(s.totals.receive_qty_sum)}
+                        </div>
+                        <div>
+                          ↔ {s.totals.transfer_count} · qty{" "}
+                          {fmtQty(s.totals.transfer_qty_sum)}
+                        </div>
+                        <div>
+                          − {s.totals.consumption_count} · qty{" "}
+                          {fmtQty(s.totals.consumption_qty_sum)}
+                        </div>
+                      </div>
                     </div>
-                  )}
 
-                  {s.transfers_from_main.length > 0 && (
-                    <div className="mb-3">
-                      <h4 className="text-xs font-semibold uppercase tracking-wide text-brand-700 mb-1.5">
-                        Took from Main Store
-                      </h4>
-                      <ul className="divide-y divide-slate-100 rounded-xl border border-slate-100 overflow-hidden">
-                        {s.transfers_from_main.map((t, i) => (
-                          <li
-                            key={`t-${i}-${t.date}`}
-                            className="bg-slate-50 px-3 py-2 text-sm"
+                    <table className="w-full min-w-[640px] text-left text-xs border-collapse">
+                      <thead>
+                        <tr className="bg-[#482980] text-white uppercase tracking-wide">
+                          <th className="px-2 py-2 font-semibold">Date</th>
+                          <th className="px-2 py-2 font-semibold">Product</th>
+                          <th className="px-2 py-2 font-semibold">Category</th>
+                          <th className="px-2 py-2 font-semibold text-right">Qty</th>
+                          <th className="px-2 py-2 font-semibold">Location</th>
+                          <th className="px-2 py-2 font-semibold">Type</th>
+                          <th className="px-2 py-2 font-semibold">Note</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rows.map((row, i) => (
+                          <tr
+                            key={row.key}
+                            className={
+                              i % 2 === 1 ? "bg-slate-50" : "bg-white"
+                            }
                           >
-                            <div className="flex justify-between gap-2">
-                              <span className="font-medium truncate">
-                                {t.product_name}
-                              </span>
-                              <span className="font-semibold text-brand-700 shrink-0">
-                                {fmtQty(t.qty)}
-                              </span>
-                            </div>
-                            <p className="text-[11px] font-medium text-slate-700">
-                              {dateLine(t.date)}
-                            </p>
-                            <p className="text-[11px] text-slate-500">
-                              → {t.to_location}
-                              {t.barcode ? ` · ${t.barcode}` : ""}
-                              {t.note ? ` · ${t.note}` : ""}
-                            </p>
-                          </li>
+                            <td className="px-2 py-1.5 whitespace-nowrap border-b border-slate-100">
+                              {dateLine(row.date)}
+                            </td>
+                            <td className="px-2 py-1.5 font-medium border-b border-slate-100">
+                              {row.product}
+                            </td>
+                            <td className="px-2 py-1.5 text-slate-600 border-b border-slate-100">
+                              {row.category}
+                            </td>
+                            <td className="px-2 py-1.5 text-right font-semibold border-b border-slate-100">
+                              {row.qty}
+                            </td>
+                            <td className="px-2 py-1.5 text-slate-600 border-b border-slate-100">
+                              {row.location}
+                            </td>
+                            <td className="px-2 py-1.5 border-b border-slate-100">
+                              {row.type}
+                            </td>
+                            <td className="px-2 py-1.5 text-slate-500 border-b border-slate-100">
+                              {row.note || "—"}
+                            </td>
+                          </tr>
                         ))}
-                      </ul>
-                    </div>
-                  )}
-
-                  {s.consumptions.length > 0 && (
-                    <div>
-                      <h4 className="text-xs font-semibold uppercase tracking-wide text-rose-700 mb-1.5">
-                        Use / sale
-                      </h4>
-                      <ul className="divide-y divide-slate-100 rounded-xl border border-slate-100 overflow-hidden">
-                        {s.consumptions.map((c, i) => (
-                          <li
-                            key={`c-${i}-${c.date}`}
-                            className="bg-slate-50 px-3 py-2 text-sm"
-                          >
-                            <div className="flex justify-between gap-2">
-                              <span className="font-medium truncate">
-                                {c.product_name}
-                              </span>
-                              <span className="font-semibold text-rose-700 shrink-0">
-                                {fmtQty(c.qty)}
-                              </span>
-                            </div>
-                            <p className="text-[11px] font-medium text-slate-700">
-                              {dateLine(c.date)}
-                            </p>
-                            <p className="text-[11px] text-slate-500">
-                              {c.type} · {c.location}
-                              {c.barcode ? ` · ${c.barcode}` : ""}
-                              {c.note ? ` · ${c.note}` : ""}
-                            </p>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                </section>
-              ))}
+                      </tbody>
+                    </table>
+                  </section>
+                );
+              })}
             </div>
           )}
         </>
