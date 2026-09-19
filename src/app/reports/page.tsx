@@ -178,6 +178,13 @@ export default function ReportsPage() {
           >
             ⬇ CSV (Excel)
           </a>
+          <a
+            className={`btn-secondary text-sm flex-1 text-center ${!report || rangeInvalid ? "pointer-events-none opacity-50" : ""}`}
+            href={`/api/reports/monthly-staff.pdf?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`}
+            download
+          >
+            ⬇ PDF
+          </a>
         </div>
       </div>
 
