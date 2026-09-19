@@ -1,7 +1,48 @@
 /** Soft colorful chip classes for expiry dates, sized a bit larger for readability. */
-export function expiryChipClass(status?: string | null): string {
+
+/** Period After Opening (PAO) shelf-life codes: 3M, 6M, 12M, 18M, etc. */
+export function isPaoCode(expiry: string | null | undefined): boolean {
+  if (!expiry) return false;
+  return /^\d+\s*M$/i.test(expiry.trim());
+}
+
+/** Normalize PAO display e.g. "6 M" → "6M". */
+export function normalizePaoCode(expiry: string): string {
+  const m = /^(\d+)\s*M$/i.exec(expiry.trim());
+  return m ? `${m[1]}M` : expiry.trim();
+}
+
+/**
+ * Chip label for product.expiry.
+ * PAO → "After opening: 6M" (not "Expiry: 6M").
+ */
+export function formatExpiryChipLabel(
+  expiry: string,
+  opts?: { compact?: boolean }
+): string {
+  const compact = opts?.compact === true;
+  const e = expiry.trim();
+  if (isPaoCode(e)) {
+    const code = normalizePaoCode(e);
+    return compact ? `After opening ${code}` : `After opening: ${code}`;
+  }
+  return compact ? `Exp ${e}` : `Expiry: ${e}`;
+}
+
+/**
+ * Chip colors for expiry UI.
+ * PAO / No date / After opening → neutral slate (never amber/red warning).
+ * Calendar warning statuses keep rose/orange/amber.
+ */
+export function expiryChipClass(
+  status?: string | null,
+  expiry?: string | null
+): string {
   const base =
     "inline-flex items-center rounded-lg px-2 py-0.5 font-semibold";
+  if (isPaoCode(expiry) || status === "No date" || status === "After opening") {
+    return `${base} bg-slate-100 text-slate-600 text-base`;
+  }
   if (status === "Expired") {
     return `${base} bg-rose-50 text-rose-800 text-base`;
   }
@@ -11,14 +52,20 @@ export function expiryChipClass(status?: string | null): string {
   if (status && status.startsWith("Expiring")) {
     return `${base} bg-amber-50 text-amber-800 text-base`;
   }
-  // OK / No date / unknown — still colorful amber, slightly larger
+  // Calendar date with OK / unknown — soft amber highlight (not a warning status)
   return `${base} bg-amber-50 text-amber-800 text-base`;
 }
 
 /** Compact chip for list rows (still bigger than old 10px slate). */
-export function expiryChipClassCompact(status?: string | null): string {
+export function expiryChipClassCompact(
+  status?: string | null,
+  expiry?: string | null
+): string {
   const base =
     "inline-flex items-center rounded-md px-1.5 py-0.5 font-semibold text-xs";
+  if (isPaoCode(expiry) || status === "No date" || status === "After opening") {
+    return `${base} bg-slate-100 text-slate-600`;
+  }
   if (status === "Expired") {
     return `${base} bg-rose-50 text-rose-800`;
   }
@@ -46,11 +93,15 @@ const MONTH_INDEX: Record<string, number> = {
   dec: 11,
 };
 
-/** Parse Mon-YY / Mon-YYYY (e.g. May-28) or ISO-ish dates to a UTC timestamp; null if unknown. */
+/**
+ * Parse Mon-YY / Mon-YYYY (e.g. May-28) or ISO-ish dates to a UTC timestamp; null if unknown.
+ * PAO codes (6M etc.) are never treated as calendar months.
+ */
 export function parseExpiryTimestamp(expiry: string | null | undefined): number | null {
   if (!expiry) return null;
   const s = expiry.trim();
   if (!s) return null;
+  if (isPaoCode(s)) return null;
 
   const monYy = /^([A-Za-z]{3})[-\s/](\d{2}|\d{4})$/.exec(s);
   if (monYy) {
@@ -70,6 +121,43 @@ export function parseExpiryTimestamp(expiry: string | null | undefined): number 
   return null;
 }
 
+/**
+ * UI / report expiry status from the expiry field alone.
+ * PAO → "No date" (never Expired / Expiring… from parsing 6M as a month).
+ * Prefer this when computing calendar urgency; stock OK stays separate.
+ */
+export function computeExpiryFieldStatus(
+  expiry: string | null | undefined,
+  now: Date = new Date()
+): string {
+  if (!expiry || !expiry.trim()) return "No date";
+  const s = expiry.trim();
+  if (isPaoCode(s)) return "No date";
+  if (s === "—" || s === "-" || s === "–") return "No date";
+
+  const ts = parseExpiryTimestamp(s);
+  if (ts == null) return "No date";
+
+  const end = new Date(ts);
+  // Treat Mon-YY as month-end for urgency (align with Main Store report)
+  const endY = end.getUTCFullYear();
+  const endM = end.getUTCMonth();
+  const lastDay = new Date(Date.UTC(endY, endM + 1, 0)).getUTCDate();
+  const endMs = Date.UTC(endY, endM, lastDay);
+
+  const sy = now.getUTCFullYear();
+  const sm = now.getUTCMonth();
+  const sd = now.getUTCDate();
+  if (endY === sy && endM === sm) return "Expires this month";
+  const monthStart = Date.UTC(sy, sm, 1);
+  if (endMs < monthStart) return "Expired";
+  const days = Math.floor((endMs - Date.UTC(sy, sm, sd)) / 86400000);
+  if (days < 0) return "Expired";
+  if (days <= 90) return "Expiring ≤90 days";
+  if (days <= 183) return "Expiring ≤6 months";
+  return "OK";
+}
+
 /** Near-expiry fallback when no parseable date: lower = sooner / more urgent. */
 export const EXPIRY_STATUS_RANK: Record<string, number> = {
   Expired: 0,
@@ -78,6 +166,7 @@ export const EXPIRY_STATUS_RANK: Record<string, number> = {
   "Expiring ≤6 months": 3,
   OK: 4,
   "No date": 5,
+  "After opening": 5,
 };
 
 export function expiryStatusRank(status: string | null | undefined): number {

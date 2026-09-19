@@ -234,15 +234,18 @@ function NewProductInner() {
           </div>
           <div>
             <label className="label" htmlFor="np-expiry">
-              Expiry (optional)
+              Expiry / shelf life (optional)
             </label>
             <input
               id="np-expiry"
-              type="date"
               className="input py-2.5 text-sm"
               value={expiry}
               onChange={(e) => setExpiry(e.target.value)}
+              placeholder="e.g. Jan-28 or 6M"
             />
+            <p className="mt-1 text-[11px] text-slate-500">
+              Mon-YY = calendar expiry; 6M / 12M = months after opening (PAO).
+            </p>
           </div>
         </div>
 

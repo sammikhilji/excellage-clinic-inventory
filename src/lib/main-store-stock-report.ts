@@ -6,6 +6,7 @@ import type { StoreData } from "./db";
 import { getStockGroup } from "./stock-groups";
 import { stockValue } from "./stock-metrics";
 import seedPrev from "../data/main-store-prev-seed-2026-09-17.json";
+import { isPaoCode } from "@/lib/expiry-display";
 
 export const MAIN_LOCS = [
   "Main Store",
@@ -109,7 +110,8 @@ export function parseExpiryEnd(exp: string | null | undefined, snap: Date): Date
   if (!exp) return null;
   const e = exp.trim();
   if (!e || e === "—" || e === "-" || e === "–") return null;
-  if (/^\d+\s*M$/i.test(e)) return null;
+  // PAO / shelf-life (3M, 6M, 12M, 18M) — not a calendar date
+  if (isPaoCode(e)) return null;
   const m = /^([A-Za-z]{3})-(\d{2})$/.exec(e);
   if (!m) return null;
   const mon = MONTHS[m[1].toLowerCase()];
@@ -119,8 +121,12 @@ export function parseExpiryEnd(exp: string | null | undefined, snap: Date): Date
   return new Date(Date.UTC(year, mon - 1, last));
 }
 
-/** Report status — Normal never OK. */
+/**
+ * Report status — Normal never OK.
+ * PAO codes (ISDIN/Cebelia 3M–18M) stay "No date" — never Expired / Expiring….
+ */
 export function computeReportStatus(exp: string | null | undefined, snap: Date): string {
+  if (exp && isPaoCode(exp)) return "No date";
   const end = parseExpiryEnd(exp, snap);
   if (!end) return "No date";
   const sy = snap.getUTCFullYear();

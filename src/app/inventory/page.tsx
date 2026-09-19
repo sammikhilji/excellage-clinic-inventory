@@ -7,6 +7,7 @@ import { LOCATIONS, formatUnitLabel } from "@/lib/types";
 import {
   expiryChipClassCompact,
   expiryStatusRank,
+  formatExpiryChipLabel,
   parseExpiryTimestamp,
 } from "@/lib/expiry-display";
 import { getStockGroup, type StockGroup } from "@/lib/stock-groups";
@@ -244,8 +245,8 @@ export default function InventoryPage() {
               <div className="mt-2 flex flex-wrap items-center gap-1.5">
                 <StatusBadge status={p.status} />
                 {p.expiry && (
-                  <span className={expiryChipClassCompact(p.status)}>
-                    Exp {p.expiry}
+                  <span className={expiryChipClassCompact(p.status, p.expiry)}>
+                    {formatExpiryChipLabel(p.expiry, { compact: true })}
                   </span>
                 )}
                 {p.price != null && (

@@ -4,7 +4,8 @@ export default function StatusBadge({ status }: { status: string }) {
   else if (status === "Expired") cls = "bg-rose-100 text-rose-800";
   else if (status === "Expires this month") cls = "bg-orange-100 text-orange-800";
   else if (status.startsWith("Expiring")) cls = "bg-amber-100 text-amber-800";
-  else if (status === "No date") cls = "bg-slate-100 text-slate-500";
+  else if (status === "No date" || status === "After opening")
+    cls = "bg-slate-100 text-slate-500";
 
   return <span className={`badge ${cls}`}>{status}</span>;
 }

@@ -167,7 +167,7 @@ export default function DashboardPage() {
                   <div className="min-w-0">
                     <p className="truncate text-sm font-medium">{p.product}</p>
                     <p className="text-xs text-slate-500">
-                      <span className={expiryChipClassCompact(p.status)}>{p.expiry || "—"}</span>
+                      <span className={expiryChipClassCompact(p.status, p.expiry)}>{p.expiry || "—"}</span>
                       <span className="text-xs text-slate-500"> · qty {p.total}</span>
                     </p>
                   </div>

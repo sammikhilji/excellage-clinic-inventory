@@ -12,7 +12,10 @@ import {
   formatDateLabel,
   timeOnly,
 } from "@/lib/activity-display";
-import { expiryChipClass } from "@/lib/expiry-display";
+import {
+  expiryChipClass,
+  formatExpiryChipLabel,
+} from "@/lib/expiry-display";
 import { stockValue } from "@/lib/stock-metrics";
 
 type Detail = {
@@ -224,8 +227,8 @@ export default function ProductDetailPage() {
         <div className="flex flex-wrap gap-2 items-center pt-1">
           <StatusBadge status={item.status} />
           {item.expiry && (
-            <span className={expiryChipClass(item.status)}>
-              Expiry: {item.expiry}
+            <span className={expiryChipClass(item.status, item.expiry)}>
+              {formatExpiryChipLabel(item.expiry)}
             </span>
           )}
         </div>
@@ -402,17 +405,18 @@ export default function ProductDetailPage() {
               </div>
               <div>
                 <label className="label" htmlFor="edit-expiry">
-                  Expiry date
+                  Expiry / shelf life
                 </label>
                 <input
                   id="edit-expiry"
                   className="input"
                   value={expiry}
                   onChange={(e) => setExpiry(e.target.value)}
-                  placeholder="e.g. Jan-28 or 2028-01"
+                  placeholder="e.g. Jan-28 or 6M"
                 />
                 <p className="mt-1 text-[11px] text-slate-500">
-                  Leave blank to clear expiry.
+                  Mon-YY (e.g. Jan-28) = calendar expiry. 6M / 12M = months after
+                  opening (PAO), not a date. Leave blank to clear.
                 </p>
               </div>
               <div>
