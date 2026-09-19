@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import StatusBadge from "@/components/StatusBadge";
-import type { DashboardData } from "@/lib/types";
+import type { DashboardData, StockGroupKey, StockGroupSummary } from "@/lib/types";
 import { useAuth } from "@/components/AuthGate";
 import { REPORT_ALLOWED_ROLES } from "@/lib/monthly-staff-report-types";
 import {
@@ -11,6 +11,46 @@ import {
   formatDateLabel,
   timeOnly,
 } from "@/lib/activity-display";
+
+const GROUP_ORDER: StockGroupKey[] = ["products", "consumables", "crash_cart"];
+
+const GROUP_ACCENT: Record<StockGroupKey, string> = {
+  products: "border-brand-200 bg-brand-50/40",
+  consumables: "border-amber-200 bg-amber-50/50",
+  crash_cart: "border-rose-200 bg-rose-50/40",
+};
+
+function formatAed(n: number) {
+  return Number(n ?? 0).toLocaleString(undefined, {
+    style: "currency",
+    currency: "AED",
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  });
+}
+
+function fallbackGroups(data: DashboardData): Record<StockGroupKey, StockGroupSummary> {
+  return {
+    products: {
+      label: "Products",
+      productCount: data.totalProducts,
+      totalQty: data.totalQty,
+      totalStockValue: data.totalStockValue,
+    },
+    consumables: {
+      label: "Consumables",
+      productCount: 0,
+      totalQty: 0,
+      totalStockValue: 0,
+    },
+    crash_cart: {
+      label: "Crash Cart",
+      productCount: 0,
+      totalQty: 0,
+      totalStockValue: 0,
+    },
+  };
+}
 
 export default function DashboardPage() {
   const { user } = useAuth();
@@ -47,31 +87,49 @@ export default function DashboardPage() {
   if (err) return <p className="text-rose-600">{err}</p>;
   if (!data) return <p className="text-slate-500 text-sm">Loading…</p>;
 
+  const groups = data.groups ?? fallbackGroups(data);
+
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-3">
-        <div className="card p-4">
-          <p className="text-xs text-slate-500">Products</p>
-          <p className="text-2xl font-bold">{data.totalProducts}</p>
-        </div>
-        <div className="card p-4">
-          <p className="text-xs text-slate-500">Total qty</p>
-          <p className="text-2xl font-bold">{Number(data.totalQty).toFixed(1)}</p>
-          <p className="mt-1 text-[10px] leading-tight text-slate-400">
-            Transducers: 1 unit = 2400 lines
-          </p>
-        </div>
-        <div className="card col-span-2 p-4">
-          <p className="text-xs text-slate-500">Total stock value</p>
-          <p className="text-2xl font-bold">
-            {Number(data.totalStockValue ?? 0).toLocaleString(undefined, {
-              style: "currency",
-              currency: "AED",
-              minimumFractionDigits: 0,
-              maximumFractionDigits: 2,
-            })}
-          </p>
-        </div>
+      <div className="flex items-center justify-between gap-2 px-0.5">
+        <p className="text-xs text-slate-500">
+          <span className="font-semibold text-slate-700">{data.totalProducts}</span>{" "}
+          products
+        </p>
+        <p className="text-xs font-semibold text-slate-700">
+          {formatAed(data.totalStockValue)}
+          <span className="ml-1 font-normal text-slate-400">total</span>
+        </p>
+      </div>
+
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        {GROUP_ORDER.map((key) => {
+          const g = groups[key];
+          return (
+            <div
+              key={key}
+              className={`card border p-4 ${GROUP_ACCENT[key]}`}
+            >
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                {g.label}
+              </p>
+              <p className="mt-1 text-2xl font-bold tabular-nums">
+                {Number(g.totalQty).toFixed(1)}
+              </p>
+              <p className="mt-0.5 text-sm font-semibold text-slate-700">
+                {formatAed(g.totalStockValue)}
+              </p>
+              <p className="mt-1 text-[11px] text-slate-500">
+                {g.productCount} product{g.productCount === 1 ? "" : "s"}
+              </p>
+              {key === "consumables" && (
+                <p className="mt-2 text-[10px] leading-tight text-slate-400">
+                  Transducers: 1 unit = 2400 lines
+                </p>
+              )}
+            </div>
+          );
+        })}
       </div>
 
       <section className="card p-4">

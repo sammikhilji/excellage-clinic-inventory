@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { getStore } from "@/lib/db";
 import { stockValue, toStockingUnits } from "@/lib/stock-metrics";
+import {
+  getStockGroup,
+  STOCK_GROUP_LABELS,
+  type StockGroup,
+} from "@/lib/stock-groups";
 
 export const dynamic = "force-dynamic";
 
@@ -18,17 +23,49 @@ const STATUS_ORDER: Record<string, number> = {
   "Expiring ≤6 months": 4,
 };
 
+type GroupStats = {
+  label: string;
+  productCount: number;
+  totalQty: number;
+  totalStockValue: number;
+};
+
+function emptyGroup(key: StockGroup): GroupStats {
+  return {
+    label: STOCK_GROUP_LABELS[key],
+    productCount: 0,
+    totalQty: 0,
+    totalStockValue: 0,
+  };
+}
+
 export async function GET() {
   const store = await getStore();
 
-  const totalProducts = store.products.length;
+  const groups: Record<StockGroup, GroupStats> = {
+    products: emptyGroup("products"),
+    consumables: emptyGroup("consumables"),
+    crash_cart: emptyGroup("crash_cart"),
+  };
+
+  let totalProducts = 0;
   let totalQty = 0;
   let totalQtyRaw = 0;
   let totalStockValue = 0;
+
   for (const p of store.products) {
+    const group = getStockGroup(p);
+    const qty = toStockingUnits(p.product, p.total);
+    const value = stockValue(p.price, p.total);
+
+    groups[group].productCount += 1;
+    groups[group].totalQty += qty;
+    groups[group].totalStockValue += value;
+
+    totalProducts += 1;
     totalQtyRaw += p.total;
-    totalQty += toStockingUnits(p.product, p.total);
-    totalStockValue += stockValue(p.price, p.total);
+    totalQty += qty;
+    totalStockValue += value;
   }
 
   const expiryAlerts = store.products
@@ -75,6 +112,7 @@ export async function GET() {
     totalQty,
     totalQtyRaw,
     totalStockValue,
+    groups,
     expiryAlerts,
     stockByLocation,
     recentActivity,

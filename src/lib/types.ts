@@ -114,6 +114,15 @@ export interface ProductWithStock extends Product {
   holdings: StockHolding[];
 }
 
+export type StockGroupKey = "products" | "consumables" | "crash_cart";
+
+export interface StockGroupSummary {
+  label: string;
+  productCount: number;
+  totalQty: number;
+  totalStockValue: number;
+}
+
 export interface DashboardData {
   totalProducts: number;
   /** Stocking units (transducers counted as lines ÷ 2400). */
@@ -122,6 +131,8 @@ export interface DashboardData {
   totalQtyRaw?: number;
   /** Sum of (price ?? 0) × stored qty across products (AED). */
   totalStockValue: number;
+  /** Per stocking-group rollups (Products / Consumables / Crash Cart). */
+  groups?: Record<StockGroupKey, StockGroupSummary>;
   expiryAlerts: Product[];
   stockByLocation: { location: string; qty: number }[];
   recentActivity: Activity[];

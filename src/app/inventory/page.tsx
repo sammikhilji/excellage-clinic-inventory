@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import StatusBadge from "@/components/StatusBadge";
 import { LOCATIONS, formatUnitLabel } from "@/lib/types";
+import { getStockGroup, type StockGroup } from "@/lib/stock-groups";
 
 type Product = {
   id: number;
@@ -28,6 +29,7 @@ export default function InventoryPage() {
   const [category, setCategory] = useState("");
   const [location, setLocation] = useState("");
   const [status, setStatus] = useState("");
+  const [stockGroup, setStockGroup] = useState<StockGroup | "">("");
   const [loading, setLoading] = useState(true);
 
 
@@ -62,7 +64,19 @@ export default function InventoryPage() {
     return () => clearTimeout(t);
   }, [q, category, location, status]);
 
-  const countLabel = useMemo(() => `${products.length} items`, [products]);
+  const filtered = useMemo(() => {
+    if (!stockGroup) return products;
+    return products.filter((p) => getStockGroup(p) === stockGroup);
+  }, [products, stockGroup]);
+
+  const countLabel = useMemo(() => `${filtered.length} items`, [filtered]);
+
+  const GROUP_CHIPS: { id: StockGroup | ""; label: string }[] = [
+    { id: "", label: "All" },
+    { id: "products", label: "Products" },
+    { id: "consumables", label: "Consumables" },
+    { id: "crash_cart", label: "Crash Cart" },
+  ];
 
   return (
     <div className="space-y-3">
@@ -81,6 +95,25 @@ export default function InventoryPage() {
         value={q}
         onChange={(e) => setQ(e.target.value)}
       />
+      <div className="flex flex-wrap gap-1.5">
+        {GROUP_CHIPS.map((chip) => {
+          const active = stockGroup === chip.id;
+          return (
+            <button
+              key={chip.id || "all"}
+              type="button"
+              onClick={() => setStockGroup(chip.id)}
+              className={
+                active
+                  ? "rounded-full bg-brand-600 px-3 py-1 text-xs font-semibold text-white"
+                  : "rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-600"
+              }
+            >
+              {chip.label}
+            </button>
+          );
+        })}
+      </div>
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
         <select className="input py-2.5 text-sm" value={category} onChange={(e) => setCategory(e.target.value)}>
           <option value="">All categories</option>
@@ -111,7 +144,7 @@ export default function InventoryPage() {
       <p className="text-xs text-slate-500">{loading ? "Loading…" : countLabel}</p>
 
       <ul className="space-y-2">
-        {products.map((p) => (
+        {filtered.map((p) => (
           <li key={p.id}>
             <Link href={`/inventory/${p.id}`} className="card block p-3 active:bg-slate-50">
               <div className="flex items-start justify-between gap-2">
