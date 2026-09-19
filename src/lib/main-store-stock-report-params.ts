@@ -24,12 +24,19 @@ export function parseMainStoreReportParams(
     return { error: "From must be on or before To" };
   }
 
+  const asFilter = (s: string | null) => {
+    if (!s) return null;
+    const trimmed = s.trim();
+    if (!trimmed || trimmed.toLowerCase() === "all") return null;
+    return trimmed;
+  };
+
   return {
     from: from || null,
     to: to || null,
-    category: category || null,
+    category: asFilter(category),
     // Missing → products default; empty string → All
     group: group == null ? "products" : group,
-    location: location || null,
+    location: asFilter(location),
   };
 }

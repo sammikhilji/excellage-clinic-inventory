@@ -45,8 +45,10 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    store.main_store_report_snapshot = snapshotFromReport(report);
-    await persistStore(store);
+    if (report.rows.length > 0) {
+      store.main_store_report_snapshot = snapshotFromReport(report);
+      await persistStore(store);
+    }
 
     const filename = `Main_Store_Stock_Report_${report.prev_date}_to_${report.snapshot_date}.xlsx`;
     return new NextResponse(new Uint8Array(xlsxBytes), {

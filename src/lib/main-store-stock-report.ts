@@ -192,6 +192,15 @@ function isYmd(s: string | null | undefined): s is string {
   return !!s && /^\d{4}-\d{2}-\d{2}$/.test(s);
 }
 
+
+/** Empty / "All" (UI sentinel) → no filter. */
+function normalizeFilterValue(s: string | null | undefined): string {
+  const t = (s ?? "").trim();
+  if (!t || t.toLowerCase() === "all") return "";
+  return t;
+}
+
+
 function daysApart(a: string, b: string): number {
   const da = parseYmd(a).getTime();
   const db = parseYmd(b).getTime();
@@ -244,7 +253,7 @@ export function livePivot(
   sassani: number;
 }> {
   const group = (opts?.group ?? "products").trim().toLowerCase();
-  const categoryFilter = (opts?.category ?? "").trim().toLowerCase();
+  const categoryFilter = normalizeFilterValue(opts?.category).toLowerCase();
   const byId = new Map(store.products.map((p) => [p.id, p]));
   const map = new Map<string, ReturnType<typeof emptyLoc> & {
     product: string; category: string; expiry: string;
@@ -309,11 +318,12 @@ export function buildMainStoreReport(
     ? fromRaw
     : prevSnap.snapshot_date || "2026-09-17";
   const prev_label = formatLongLabel(prev_date);
+  const categoryOpt = normalizeFilterValue(opts.category);
   const live = livePivot(store, {
     group: opts.group ?? "products",
-    category: opts.category ?? null,
+    category: categoryOpt || null,
   });
-  const locationFilter = (opts.location ?? "").trim();
+  const locationFilter = normalizeFilterValue(opts.location);
   const locKeyFilter =
     locationFilter && locationFilter in LOC_KEY
       ? LOC_KEY[locationFilter as keyof typeof LOC_KEY]
@@ -401,23 +411,21 @@ export function buildMainStoreReport(
     });
   }
 
-  let filtered = rows;
+  // Copy before filter — never alias `filtered` to `rows` then clear via length=0
+  let filtered = rows.slice();
   if (locKeyFilter) {
-    filtered = rows.filter((r) => (r[locKeyFilter] ?? 0) > 0);
+    filtered = filtered.filter((r) => (r[locKeyFilter] ?? 0) > 0);
   }
-  if ((opts.category ?? "").trim()) {
-    const cf = (opts.category ?? "").trim().toLowerCase();
+  if (categoryOpt) {
+    const cf = categoryOpt.toLowerCase();
     filtered = filtered.filter(
       (r) =>
         (r.category || "").trim().toLowerCase() === cf ||
         (r.category_long || "").trim().toLowerCase() === cf
     );
   }
-  // Replace rows with filtered for report output
-  rows.length = 0;
-  rows.push(...filtered);
 
-  const nonT = rows.filter((r) => !r.is_transducer);
+  const nonT = filtered.filter((r) => !r.is_transducer);
   const units_now = nonT.reduce((s, r) => s + r.total, 0);
   const units_prev = nonT.reduce((s, r) => s + r.prev_total, 0);
   const used_total = nonT.reduce((s, r) => s + r.used, 0);
@@ -428,15 +436,15 @@ export function buildMainStoreReport(
     snapshot_label: formatLongLabel(snapshot_date),
     prev_date,
     prev_label,
-    rows,
+    rows: filtered,
     new_skus,
     units_now,
     units_prev,
     used_total,
     receipt_total,
-    sku_n: rows.length,
-    in_stock: rows.filter((r) => r.total > 0).length,
-    oos: rows.filter((r) => r.total <= 0).length,
+    sku_n: filtered.length,
+    in_stock: filtered.filter((r) => r.total > 0).length,
+    oos: filtered.filter((r) => r.total <= 0).length,
   };
 }
 

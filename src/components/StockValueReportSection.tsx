@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { LOCATIONS } from "@/lib/types";
 import {
   getStockGroup,
-  STOCK_GROUP_LABELS,
   type StockGroup,
 } from "@/lib/stock-groups";
 import type { StockValueReport } from "@/lib/stock-value-report";
@@ -202,27 +201,29 @@ export default function StockValueReportSection() {
     return q.toString();
   }, [from, to, location, category, scope]);
 
-  const generateReport = async () => {
+  const generateReport = async (formatOverride?: LegacyFormat) => {
+    const fmt: LegacyFormat = formatOverride ?? format;
     if (!date) {
       setErr("Select a date");
       setReport(null);
       setGenerated(null);
       return;
     }
-    if (format !== "pdf" && format !== "csv") {
+    if (fmt !== "pdf" && fmt !== "csv") {
       setErr("Select PDF or CSV format");
       return;
     }
 
+    setFormat(fmt);
     setLoading(true);
     setErr(null);
     const qs = `${buildLegacyQuery()}&v=3`;
     const downloadPath =
-      format === "pdf"
+      fmt === "pdf"
         ? `/api/reports/stock-value.pdf?${qs}`
         : `/api/reports/stock-value.csv?${qs}`;
     const filename =
-      format === "pdf"
+      fmt === "pdf"
         ? `current-stock-${date}.pdf`
         : `current-stock-${date}.csv`;
 
@@ -238,8 +239,8 @@ export default function StockValueReportSection() {
       const ct = dlRes.headers.get("content-type") || "";
       const looksOk =
         dlRes.ok &&
-        ((format === "pdf" && ct.includes("application/pdf")) ||
-          (format === "csv" &&
+        ((fmt === "pdf" && ct.includes("application/pdf")) ||
+          (fmt === "csv" &&
             (ct.includes("text/csv") || ct.includes("text/plain"))));
 
       if (!looksOk) {
@@ -251,7 +252,7 @@ export default function StockValueReportSection() {
           message = dlRes.statusText || message;
         }
         setErr(
-          `${format === "pdf" ? "PDF" : "CSV"} download failed: ${message}`
+          `${fmt === "pdf" ? "PDF" : "CSV"} download failed: ${message}`
         );
         setReport(null);
         setGenerated(null);
@@ -277,7 +278,7 @@ export default function StockValueReportSection() {
             category,
             scope,
             includeZero,
-            format,
+            format: fmt,
           });
         } catch {
           setReport(null);
@@ -287,7 +288,7 @@ export default function StockValueReportSection() {
             category,
             scope,
             includeZero,
-            format,
+            format: fmt,
           });
         }
       } else {
@@ -298,7 +299,7 @@ export default function StockValueReportSection() {
           category,
           scope,
           includeZero,
-          format,
+          format: fmt,
         });
       }
     } catch (e) {
@@ -481,24 +482,6 @@ export default function StockValueReportSection() {
               </option>
             ))}
           </select>
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            {SCOPE_OPTIONS.map((o) => (
-              <button
-                key={`ms-chip-${o.value || "all"}`}
-                type="button"
-                className={`rounded-full px-2.5 py-1 text-[11px] font-semibold border ${
-                  scope === o.value
-                    ? "bg-[#5C2D91] text-white border-[#5C2D91]"
-                    : "bg-white text-slate-600 border-slate-200"
-                }`}
-                onClick={() => setScope(o.value)}
-              >
-                {o.value === ""
-                  ? "All"
-                  : STOCK_GROUP_LABELS[o.value as StockGroup]}
-              </button>
-            ))}
-          </div>
         </div>
 
         {/* 3. Format PDF | Excel */}
@@ -568,61 +551,9 @@ export default function StockValueReportSection() {
             />
           </div>
 
-          <div>
-            <label className="label" htmlFor="sv-department">
-              Department
-            </label>
-            <select
-              id="sv-department"
-              className="input"
-              value={location}
-              onChange={(e) => setLocation(e.target.value)}
-            >
-              <option value="">All</option>
-              {locations.map((l) => (
-                <option key={l} value={l}>
-                  {l}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label className="label" htmlFor="sv-category">
-              Category
-            </label>
-            <select
-              id="sv-category"
-              className="input"
-              value={category}
-              onChange={(e) => setCategory(e.target.value)}
-            >
-              <option value="">All</option>
-              {filteredCategories.map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label className="label" htmlFor="sv-scope">
-              Scope
-            </label>
-            <select
-              id="sv-scope"
-              className="input"
-              value={scope}
-              onChange={(e) => setScope(e.target.value as ScopeValue)}
-            >
-              {SCOPE_OPTIONS.map((o) => (
-                <option key={o.value || "all"} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
-          </div>
+          <p className="text-[11px] text-slate-500">
+            Uses Department / Category / Scope from Main Store filters above.
+          </p>
 
           <label className="flex items-start gap-2 text-sm text-slate-700 cursor-pointer">
             <input
@@ -639,42 +570,24 @@ export default function StockValueReportSection() {
             </span>
           </label>
 
-          <div>
-            <p className="label mb-1.5">Format</p>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                className={`rounded-xl border px-3 py-2.5 text-sm font-semibold ${
-                  format === "pdf"
-                    ? "border-brand-600 bg-brand-50 text-brand-800"
-                    : "border-slate-200 bg-white text-slate-600"
-                }`}
-                onClick={() => setFormat("pdf")}
-              >
-                PDF
-              </button>
-              <button
-                type="button"
-                className={`rounded-xl border px-3 py-2.5 text-sm font-semibold ${
-                  format === "csv"
-                    ? "border-brand-600 bg-brand-50 text-brand-800"
-                    : "border-slate-200 bg-white text-slate-600"
-                }`}
-                onClick={() => setFormat("csv")}
-              >
-                CSV
-              </button>
-            </div>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              className="btn-primary text-sm flex-1"
+              onClick={() => void generateReport("pdf")}
+              disabled={loading || !date}
+            >
+              {loading && format === "pdf" ? "Generating…" : "Legacy PDF"}
+            </button>
+            <button
+              type="button"
+              className="btn-secondary text-sm flex-1"
+              onClick={() => void generateReport("csv")}
+              disabled={loading || !date}
+            >
+              {loading && format === "csv" ? "Generating…" : "Legacy CSV"}
+            </button>
           </div>
-
-          <button
-            type="button"
-            className="btn-primary text-sm w-full"
-            onClick={() => void generateReport()}
-            disabled={loading || !date}
-          >
-            {loading ? "Generating…" : "Generate legacy pivot"}
-          </button>
         </div>
       </details>
 

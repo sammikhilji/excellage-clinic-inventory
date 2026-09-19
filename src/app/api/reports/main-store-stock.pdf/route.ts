@@ -45,9 +45,11 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // Persist this snapshot (To date) as prev for next run
-    store.main_store_report_snapshot = snapshotFromReport(report);
-    await persistStore(store);
+    // Persist this snapshot (To date) as prev for next run — never save empty
+    if (report.rows.length > 0) {
+      store.main_store_report_snapshot = snapshotFromReport(report);
+      await persistStore(store);
+    }
 
     const filename = `Main_Store_Stock_Report_${report.prev_date}_to_${report.snapshot_date}.pdf`;
     return new NextResponse(Buffer.from(pdfBytes), {
