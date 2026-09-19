@@ -11,6 +11,7 @@ import {
   formatDateLabel,
   timeOnly,
 } from "@/lib/activity-display";
+import { expiryChipClassCompact } from "@/lib/expiry-display";
 
 const GROUP_ORDER: StockGroupKey[] = ["products", "consumables", "crash_cart"];
 
@@ -167,7 +168,8 @@ export default function DashboardPage() {
                   <div className="min-w-0">
                     <p className="truncate text-sm font-medium">{p.product}</p>
                     <p className="text-xs text-slate-500">
-                      {p.expiry || "—"} · qty {p.total}
+                      <span className={expiryChipClassCompact(p.status)}>{p.expiry || "—"}</span>
+                      <span className="text-xs text-slate-500"> · qty {p.total}</span>
                     </p>
                   </div>
                   <StatusBadge status={p.status} />

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import StatusBadge from "@/components/StatusBadge";
 import { LOCATIONS, formatUnitLabel } from "@/lib/types";
+import { expiryChipClassCompact } from "@/lib/expiry-display";
 import { getStockGroup, type StockGroup } from "@/lib/stock-groups";
 import { stockValue } from "@/lib/stock-metrics";
 
@@ -168,7 +169,11 @@ export default function InventoryPage() {
               </div>
               <div className="mt-2 flex flex-wrap items-center gap-1.5">
                 <StatusBadge status={p.status} />
-                {p.expiry && <span className="text-[10px] text-slate-500">Exp {p.expiry}</span>}
+                {p.expiry && (
+                  <span className={expiryChipClassCompact(p.status)}>
+                    Exp {p.expiry}
+                  </span>
+                )}
                 {p.price != null && (
                   <span className="rounded-lg bg-sky-50 px-2 py-1 text-[10px] font-medium text-sky-800">
                     {p.price.toLocaleString(undefined, {

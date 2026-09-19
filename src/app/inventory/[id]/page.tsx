@@ -12,6 +12,7 @@ import {
   formatDateLabel,
   timeOnly,
 } from "@/lib/activity-display";
+import { expiryChipClass } from "@/lib/expiry-display";
 import { stockValue } from "@/lib/stock-metrics";
 
 type Detail = {
@@ -222,7 +223,9 @@ export default function ProductDetailPage() {
         <div className="flex flex-wrap gap-2 items-center pt-1">
           <StatusBadge status={item.status} />
           {item.expiry && (
-            <span className="text-sm text-slate-600">Expiry: {item.expiry}</span>
+            <span className={expiryChipClass(item.status)}>
+              Expiry: {item.expiry}
+            </span>
           )}
         </div>
         <p className="text-2xl font-bold pt-2">
