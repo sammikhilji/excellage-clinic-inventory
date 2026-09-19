@@ -57,22 +57,25 @@ type GeneratedMeta = {
   location: string;
   category: string;
   scope: ScopeValue;
+  includeZero: boolean;
   format: ReportFormat;
 };
 
 const SCOPE_OPTIONS: { value: ScopeValue; label: string }[] = [
-  { value: "", label: "All" },
   { value: "products", label: "Products" },
   { value: "consumables", label: "Consumables" },
   { value: "crash_cart", label: "Crash Cart" },
+  { value: "", label: "All" },
 ];
 
 export default function StockValueReportSection() {
   const [date, setDate] = useState(() => ymdInDubai());
   const [location, setLocation] = useState("");
   const [category, setCategory] = useState("");
-  const [scope, setScope] = useState<ScopeValue>("");
-  const [format, setFormat] = useState<ReportFormat>("csv");
+  /** Default Scope = Products so Crash Cart does not dominate. */
+  const [scope, setScope] = useState<ScopeValue>("products");
+  const [includeZero, setIncludeZero] = useState(false);
+  const [format, setFormat] = useState<ReportFormat>("pdf");
   const [locations, setLocations] = useState<string[]>([...LOCATIONS]);
   const [allCategories, setAllCategories] = useState<string[]>([]);
   const [categoryMeta, setCategoryMeta] = useState<Record<string, StockGroup>>(
@@ -146,7 +149,8 @@ export default function StockValueReportSection() {
     generated.date === date &&
     generated.location === location &&
     generated.category === category &&
-    generated.scope === scope;
+    generated.scope === scope &&
+    generated.includeZero === includeZero;
 
   const buildQuery = useCallback(() => {
     const q = new URLSearchParams();
@@ -154,8 +158,9 @@ export default function StockValueReportSection() {
     if (location) q.set("location", location);
     if (category) q.set("category", category);
     if (scope) q.set("group", scope);
+    if (includeZero) q.set("includeZero", "1");
     return q.toString();
-  }, [date, location, category, scope]);
+  }, [date, location, category, scope, includeZero]);
 
   const generateReport = async () => {
     if (!date) {
@@ -171,7 +176,7 @@ export default function StockValueReportSection() {
 
     setLoading(true);
     setErr(null);
-    const qs = `${buildQuery()}&v=2`;
+    const qs = `${buildQuery()}&v=3`;
     const downloadPath =
       format === "pdf"
         ? `/api/reports/stock-value.pdf?${qs}`
@@ -226,14 +231,35 @@ export default function StockValueReportSection() {
           if (Array.isArray(data.categories) && data.categories.length) {
             setAllCategories(data.categories);
           }
-          setGenerated({ date, location, category, scope, format });
+          setGenerated({
+            date,
+            location,
+            category,
+            scope,
+            includeZero,
+            format,
+          });
         } catch {
           setReport(null);
-          setGenerated({ date, location, category, scope, format });
+          setGenerated({
+            date,
+            location,
+            category,
+            scope,
+            includeZero,
+            format,
+          });
         }
       } else {
         setReport(null);
-        setGenerated({ date, location, category, scope, format });
+        setGenerated({
+          date,
+          location,
+          category,
+          scope,
+          includeZero,
+          format,
+        });
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Generate failed";
@@ -249,6 +275,9 @@ export default function StockValueReportSection() {
     SCOPE_OPTIONS.find((o) => o.value === (generated?.scope ?? scope))
       ?.label || "All";
 
+  const locCols = report?.location_columns ?? [];
+  const locHeaders = report?.location_headers ?? [];
+
   return (
     <section
       id="current-stock-report"
@@ -256,16 +285,15 @@ export default function StockValueReportSection() {
     >
       <div className="no-print">
         <h2 className="text-lg font-bold">
-          Current stock report — qty, value, expiry
+          Current stock report — totals, value, expiry (no transactions)
         </h2>
         <p className="text-xs text-slate-500">
-          Live snapshot of what is on the shelf now (not transaction history).
-          As-of date is a label only.
+          One row per product with qty by location (MAIN · AHMAD · SALY · …).
+          As-of date is a label only — stock is always live.
         </p>
       </div>
 
       <div className="no-print card p-4 space-y-3">
-        {/* 1. Date */}
         <div>
           <label className="label" htmlFor="sv-date">
             Date (as of)
@@ -283,7 +311,6 @@ export default function StockValueReportSection() {
           </p>
         </div>
 
-        {/* 2. Department */}
         <div>
           <label className="label" htmlFor="sv-department">
             Department
@@ -301,9 +328,11 @@ export default function StockValueReportSection() {
               </option>
             ))}
           </select>
+          <p className="mt-1 text-[11px] text-slate-500">
+            All = every location column. Pick one to show only that column.
+          </p>
         </div>
 
-        {/* 3. Category */}
         <div>
           <label className="label" htmlFor="sv-category">
             Category
@@ -323,10 +352,9 @@ export default function StockValueReportSection() {
           </select>
         </div>
 
-        {/* 4. Optional scope */}
         <div>
           <label className="label" htmlFor="sv-scope">
-            Report scope (optional)
+            Scope
           </label>
           <select
             id="sv-scope"
@@ -360,21 +388,24 @@ export default function StockValueReportSection() {
           </div>
         </div>
 
-        {/* 5. Format */}
+        <label className="flex items-start gap-2 text-sm text-slate-700 cursor-pointer">
+          <input
+            type="checkbox"
+            className="mt-0.5"
+            checked={includeZero}
+            onChange={(e) => setIncludeZero(e.target.checked)}
+          />
+          <span>
+            <span className="font-medium">Include zero stock</span>
+            <span className="block text-[11px] text-slate-500">
+              Off by default — only products with total qty &gt; 0.
+            </span>
+          </span>
+        </label>
+
         <div>
           <p className="label mb-1.5">Format</p>
           <div className="grid grid-cols-2 gap-2">
-            <button
-              type="button"
-              className={`rounded-xl border px-3 py-2.5 text-sm font-semibold ${
-                format === "csv"
-                  ? "border-brand-600 bg-brand-50 text-brand-800"
-                  : "border-slate-200 bg-white text-slate-600"
-              }`}
-              onClick={() => setFormat("csv")}
-            >
-              CSV
-            </button>
             <button
               type="button"
               className={`rounded-xl border px-3 py-2.5 text-sm font-semibold ${
@@ -386,10 +417,20 @@ export default function StockValueReportSection() {
             >
               PDF
             </button>
+            <button
+              type="button"
+              className={`rounded-xl border px-3 py-2.5 text-sm font-semibold ${
+                format === "csv"
+                  ? "border-brand-600 bg-brand-50 text-brand-800"
+                  : "border-slate-200 bg-white text-slate-600"
+              }`}
+              onClick={() => setFormat("csv")}
+            >
+              CSV
+            </button>
           </div>
         </div>
 
-        {/* 6. Generate */}
         <button
           type="button"
           className="btn-primary text-sm w-full"
@@ -401,8 +442,8 @@ export default function StockValueReportSection() {
 
         {!reportReady && !loading && (
           <p className="text-[11px] text-slate-500">
-            Choose date → department / category → PDF or CSV → Generate report
-            (downloads the file; preview appears below).
+            Filters → PDF or CSV → Generate (downloads stock snapshot only —
+            never staff activity).
           </p>
         )}
       </div>
@@ -452,82 +493,119 @@ export default function StockValueReportSection() {
                 As of {report.as_of} · {scopeLabel}
                 {generated?.location ? ` · ${generated.location}` : ""}
                 {generated?.category ? ` · ${generated.category}` : ""}
+                {generated?.includeZero ? " · incl. zero" : ""}
               </p>
             </div>
-            {report.by_department.map((d) => (
-              <div key={d.department} className="card p-3">
-                <p className="text-[10px] uppercase text-slate-500 font-semibold truncate">
-                  {d.department}
-                </p>
-                <p className="text-base font-bold text-emerald-800">
-                  {formatAed(d.value_sum)}
-                </p>
-                <p className="text-[10px] text-slate-500">
-                  {d.line_count} lines · qty {fmtQty(d.qty_sum)}
-                </p>
-              </div>
-            ))}
           </div>
 
           {report.rows.length === 0 ? (
             <p className="text-sm text-slate-500 card p-4">
-              No stock with quantity greater than zero for these filters.
+              {report.include_zero
+                ? "No products match these filters."
+                : "No stock with quantity greater than zero for these filters."}
             </p>
           ) : (
             <div className="card overflow-hidden">
-              <div className="overflow-x-auto">
-                <table className="min-w-full text-left text-xs border-collapse">
+              <div className="overflow-x-auto -mx-0">
+                <table className="min-w-max w-full text-left text-xs border-collapse">
                   <thead>
                     <tr className="bg-[#482980] text-white uppercase tracking-wide">
-                      <th className="px-3 py-2 font-semibold">Product</th>
-                      <th className="px-3 py-2 font-semibold">Category</th>
-                      <th className="px-3 py-2 font-semibold">Department</th>
-                      <th className="px-3 py-2 font-semibold text-right">Qty</th>
-                      <th className="px-3 py-2 font-semibold text-right">
+                      <th className="px-2 py-2 font-semibold sticky left-0 z-20 bg-[#482980] min-w-[7rem]">
+                        Category
+                      </th>
+                      <th className="px-2 py-2 font-semibold sticky left-[7rem] z-20 bg-[#482980] min-w-[9rem]">
+                        Product
+                      </th>
+                      <th className="px-2 py-2 font-semibold whitespace-nowrap">
+                        Expiry
+                      </th>
+                      <th className="px-2 py-2 font-semibold whitespace-nowrap">
+                        Status
+                      </th>
+                      <th className="px-2 py-2 font-semibold text-right whitespace-nowrap">
+                        Total
+                      </th>
+                      <th className="px-2 py-2 font-semibold text-right whitespace-nowrap">
                         Total value (AED)
                       </th>
-                      <th className="px-3 py-2 font-semibold">Expiry</th>
+                      {locHeaders.map((h, i) => (
+                        <th
+                          key={locCols[i] || h}
+                          className="px-2 py-2 font-semibold text-right whitespace-nowrap"
+                          title={locCols[i]}
+                        >
+                          {h}
+                        </th>
+                      ))}
                     </tr>
                   </thead>
                   <tbody>
                     {report.rows.map((r, i) => (
                       <tr
-                        key={`${r.product_id}-${r.department}-${i}`}
+                        key={r.product_id}
                         className={i % 2 === 1 ? "bg-slate-50" : "bg-white"}
                       >
-                        <td className="px-3 py-2 font-medium max-w-[10rem] truncate border-b border-slate-100">
-                          {r.product}
-                        </td>
-                        <td className="px-3 py-2 text-slate-600 max-w-[8rem] truncate border-b border-slate-100">
+                        <td
+                          className={`px-2 py-1.5 max-w-[10rem] truncate border-b border-slate-100 sticky left-0 z-10 ${
+                            i % 2 === 1 ? "bg-slate-50" : "bg-white"
+                          }`}
+                        >
                           {r.category}
                         </td>
-                        <td className="px-3 py-2 text-slate-600 border-b border-slate-100">
-                          {r.department}
+                        <td
+                          className={`px-2 py-1.5 font-medium max-w-[12rem] truncate border-b border-slate-100 sticky left-[7rem] z-10 ${
+                            i % 2 === 1 ? "bg-slate-50" : "bg-white"
+                          }`}
+                        >
+                          {r.product}
                         </td>
-                        <td className="px-3 py-2 text-right tabular-nums border-b border-slate-100">
-                          {fmtQty(r.qty)}
-                        </td>
-                        <td className="px-3 py-2 text-right tabular-nums font-semibold text-emerald-800 border-b border-slate-100">
-                          {formatAed(r.line_value)}
-                        </td>
-                        <td className="px-3 py-2 whitespace-nowrap border-b border-slate-100">
+                        <td className="px-2 py-1.5 whitespace-nowrap border-b border-slate-100">
                           {r.expiry || "—"}
                         </td>
+                        <td className="px-2 py-1.5 whitespace-nowrap border-b border-slate-100">
+                          {r.status}
+                        </td>
+                        <td className="px-2 py-1.5 text-right tabular-nums border-b border-slate-100">
+                          {fmtQty(r.total_qty)}
+                        </td>
+                        <td className="px-2 py-1.5 text-right tabular-nums font-semibold text-emerald-800 border-b border-slate-100 whitespace-nowrap">
+                          {formatAed(r.total_value)}
+                        </td>
+                        {locCols.map((loc) => (
+                          <td
+                            key={loc}
+                            className="px-2 py-1.5 text-right tabular-nums border-b border-slate-100"
+                          >
+                            {fmtQty(r.qty_by_location?.[loc] ?? 0)}
+                          </td>
+                        ))}
                       </tr>
                     ))}
                   </tbody>
                   <tfoot>
                     <tr className="bg-[#482980]/10 font-bold">
-                      <td className="px-3 py-2" colSpan={3}>
+                      <td
+                        className="px-2 py-2 sticky left-0 z-10 bg-[#ece8f4]"
+                        colSpan={2}
+                      >
                         Grand total
                       </td>
-                      <td className="px-3 py-2 text-right tabular-nums">
+                      <td className="px-2 py-2" />
+                      <td className="px-2 py-2" />
+                      <td className="px-2 py-2 text-right tabular-nums">
                         {fmtQty(report.grand_qty)}
                       </td>
-                      <td className="px-3 py-2 text-right tabular-nums text-emerald-800">
+                      <td className="px-2 py-2 text-right tabular-nums text-emerald-800 whitespace-nowrap">
                         {formatAed(report.grand_total)}
                       </td>
-                      <td className="px-3 py-2" />
+                      {report.by_department.map((d) => (
+                        <td
+                          key={d.department}
+                          className="px-2 py-2 text-right tabular-nums"
+                        >
+                          {fmtQty(d.qty_sum)}
+                        </td>
+                      ))}
                     </tr>
                   </tfoot>
                 </table>

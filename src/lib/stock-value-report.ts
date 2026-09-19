@@ -9,26 +9,28 @@ import { parseDateParam } from "./monthly-staff-report";
 
 export type { StockGroup };
 
+/** One product row with qty pivoted across clinic locations. */
 export type StockValueRow = {
   product_id: number;
   product: string;
   category: string;
-  department: string;
-  /** Stocking units (transducers converted). */
-  qty: number;
-  /** Raw stored qty used for value. */
-  qty_raw: number;
-  unit_price: number;
-  line_value: number;
   /** Product expiry date string (as stored), or null. */
   expiry: string | null;
-  /** Product status (Expired / Expiring… / OK). */
+  /** Normalized display status. */
   status: string;
+  /** Total stocking units across shown location columns. */
+  total_qty: number;
+  /** Sum of stockValue across included holdings. */
+  total_value: number;
+  /** Stocking units keyed by full location name. */
+  qty_by_location: Record<string, number>;
   stock_group: StockGroup;
 };
 
 export type DepartmentSubtotal = {
   department: string;
+  /** Short header for this location column. */
+  header: string;
   line_count: number;
   qty_sum: number;
   value_sum: number;
@@ -40,16 +42,21 @@ export type StockValueReport = {
   location: string | null;
   category: string | null;
   group: StockGroup | null;
+  include_zero: boolean;
   title: string;
   filters_label: string;
+  /** Full location names for columns (display order). */
+  location_columns: string[];
+  /** Short headers parallel to location_columns (MAIN, AHMAD, …). */
+  location_headers: string[];
   rows: StockValueRow[];
   by_department: DepartmentSubtotal[];
   grand_total: number;
   grand_qty: number;
   row_count: number;
-  /** Rows with status Expired. */
+  /** Distinct products with normalized Expired status. */
   expired_count: number;
-  /** Rows expiring this month or within ≤90 days / ≤6 months. */
+  /** Distinct products expiring this month / ≤90d / ≤6m. */
   expiring_soon_count: number;
   /** Clinic locations for UI filters. */
   locations: string[];
@@ -64,6 +71,8 @@ export type StockValueFilterOptions = {
   category?: string | null;
   /** Stock group from getStockGroup; null = all */
   stockGroup?: StockGroup | null;
+  /** Include products with total qty 0 (default false). */
+  includeZero?: boolean;
 };
 
 const GROUP_QUERY: Record<string, StockGroup> = {
@@ -73,6 +82,69 @@ const GROUP_QUERY: Record<string, StockGroup> = {
   "crash-cart": "crash_cart",
   crashcart: "crash_cart",
 };
+
+/** Short column header for a clinic location (Main Store → MAIN, etc.). */
+export function locationShortHeader(name: string): string {
+  const n = (name || "").trim();
+  const lower = n.toLowerCase();
+  if (lower.includes("main")) return "MAIN";
+  if (lower.includes("ahmad")) return "AHMAD";
+  if (lower.includes("saly")) return "SALY";
+  if (lower.includes("niveen")) return "NIVEEN";
+  if (lower.includes("sassani") || lower.includes("sassan")) return "SASSANI";
+  if (lower.includes("crash")) return "CRASH";
+  const stripped = n.replace(/^Dr\.?\s*/i, "").trim();
+  const word = (stripped.split(/\s+/)[0] || n).slice(0, 8);
+  return word.toUpperCase();
+}
+
+/**
+ * Normalize status strings for KPI matching (≤ vs <=, case, spacing).
+ * Returns a canonical label when recognized; otherwise the trimmed original.
+ */
+export function normalizeStatus(status: string | null | undefined): string {
+  const raw = (status || "").trim();
+  if (!raw) return "OK";
+  const t = raw
+    .toLowerCase()
+    .replace(/≤/g, "<=")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (t === "expired") return "Expired";
+  if (t === "expires this month") return "Expires this month";
+  if (
+    t.startsWith("expiring") &&
+    (t.includes("90") || t.includes("<=90") || t.includes("<90"))
+  ) {
+    return "Expiring ≤90 days";
+  }
+  if (
+    t.startsWith("expiring") &&
+    (t.includes("6 month") || t.includes("6month") || t.includes("<=6"))
+  ) {
+    return "Expiring ≤6 months";
+  }
+  if (t === "ok" || t === "in stock") return "OK";
+  if (t === "no date" || t === "no expiry") return "No date";
+  if (t === "out of stock" || t === "oos") return "OUT OF STOCK";
+  return raw;
+}
+
+export function isExpiredStatus(status: string | null | undefined): boolean {
+  return normalizeStatus(status) === "Expired";
+}
+
+export function isExpiringSoonStatus(
+  status: string | null | undefined
+): boolean {
+  const n = normalizeStatus(status);
+  return (
+    n === "Expires this month" ||
+    n === "Expiring ≤90 days" ||
+    n === "Expiring ≤6 months"
+  );
+}
 
 /** Parse date (as-of label only). Defaults to today Asia/Dubai if omitted. */
 export function parseAsOfDate(
@@ -117,13 +189,19 @@ export function parseStockValueFilterParams(
       };
     }
   }
-  return { location, category, stockGroup };
+  const zeroRaw = (sp.get("includeZero") || sp.get("zero") || "")
+    .trim()
+    .toLowerCase();
+  const includeZero =
+    zeroRaw === "1" || zeroRaw === "true" || zeroRaw === "yes";
+  return { location, category, stockGroup, includeZero };
 }
 
 function filtersLabel(opts: {
   location: string | null;
   category: string | null;
   stockGroup: StockGroup | null;
+  includeZero: boolean;
 }): string {
   const parts: string[] = [];
   parts.push(
@@ -135,14 +213,15 @@ function filtersLabel(opts: {
       ? `Scope: ${STOCK_GROUP_LABELS[opts.stockGroup]}`
       : "Scope: All"
   );
+  if (opts.includeZero) parts.push("Incl. zero stock");
   return parts.join(" · ");
 }
 
 /**
- * Live current stock snapshot (qty, value, expiry — no transaction history).
- * Rows are product × department holdings with qty > 0.
- * Line value = stockValue(price, raw qty); display qty via toStockingUnits.
- * When all filters are All, grand_total matches Home totalStockValue.
+ * Live current stock snapshot as a product × location pivot
+ * (qty, value, expiry — no transaction history).
+ * One row per product; location columns from store.locations (or the
+ * filtered department). Qty in stocking units; value = sum of stockValue.
  */
 export function buildStockValueReport(
   store: StoreData,
@@ -152,8 +231,8 @@ export function buildStockValueReport(
   const location = (filters.location || "").trim() || null;
   const category = (filters.category || "").trim() || null;
   const stockGroup = filters.stockGroup ?? null;
+  const includeZero = !!filters.includeZero;
 
-  const productById = new Map(store.products.map((p) => [p.id, p]));
   const locations = Array.isArray(store.locations)
     ? store.locations.slice()
     : [];
@@ -161,78 +240,102 @@ export function buildStockValueReport(
     ...new Set(store.products.map((p) => p.category).filter(Boolean)),
   ].sort((a, b) => a.localeCompare(b));
 
+  const location_columns = location ? [location] : locations.slice();
+  const location_headers = location_columns.map(locationShortHeader);
+
+  // product_id → location → raw qty
+  const holdings = new Map<number, Map<string, number>>();
+  for (const h of store.stock) {
+    let byLoc = holdings.get(h.product_id);
+    if (!byLoc) {
+      byLoc = new Map();
+      holdings.set(h.product_id, byLoc);
+    }
+    byLoc.set(h.location, (byLoc.get(h.location) || 0) + (h.qty || 0));
+  }
+
   const rows: StockValueRow[] = [];
 
-  for (const h of store.stock) {
-    if (!(h.qty > 0)) continue;
-    if (location && h.location !== location) continue;
-
-    const p = productById.get(h.product_id);
-    if (!p) continue;
+  for (const p of store.products) {
     if (category && p.category !== category) continue;
-
     const group = getStockGroup(p);
     if (stockGroup && group !== stockGroup) continue;
 
-    const unit_price = p.price ?? 0;
-    const line_value = stockValue(p.price, h.qty);
-    const qty = toStockingUnits(p.product, h.qty);
+    const byLoc = holdings.get(p.id);
+    const qty_by_location: Record<string, number> = {};
+    let total_qty = 0;
+    let total_value = 0;
+
+    for (const loc of location_columns) {
+      const raw = byLoc?.get(loc) ?? 0;
+      const qty = toStockingUnits(p.product, raw);
+      qty_by_location[loc] = qty;
+      total_qty += qty;
+      total_value += stockValue(p.price, raw);
+    }
+
+    if (!includeZero && !(total_qty > 0)) continue;
 
     rows.push({
       product_id: p.id,
       product: p.product,
       category: p.category,
-      department: h.location,
-      qty,
-      qty_raw: h.qty,
-      unit_price,
-      line_value,
       expiry: p.expiry ?? null,
-      status: p.status || "OK",
+      status: normalizeStatus(p.status),
+      total_qty,
+      total_value,
+      qty_by_location,
       stock_group: group,
     });
   }
 
   rows.sort((a, b) => {
-    const d = a.department.localeCompare(b.department);
-    if (d !== 0) return d;
     const c = a.category.localeCompare(b.category);
     if (c !== 0) return c;
     return a.product.localeCompare(b.product);
   });
 
-  const deptMap = new Map<string, DepartmentSubtotal>();
-  for (const r of rows) {
-    let sub = deptMap.get(r.department);
-    if (!sub) {
-      sub = {
-        department: r.department,
-        line_count: 0,
-        qty_sum: 0,
-        value_sum: 0,
+  // Per-location column totals (qty + approximate value share by raw holdings)
+  const by_department: DepartmentSubtotal[] = location_columns.map(
+    (dept, i) => {
+      let qty_sum = 0;
+      let value_sum = 0;
+      let line_count = 0;
+      for (const r of rows) {
+        const q = r.qty_by_location[dept] || 0;
+        if (q > 0) line_count += 1;
+        qty_sum += q;
+      }
+      // Value per location from raw holdings
+      for (const p of store.products) {
+        if (category && p.category !== category) continue;
+        const group = getStockGroup(p);
+        if (stockGroup && group !== stockGroup) continue;
+        const raw = holdings.get(p.id)?.get(dept) ?? 0;
+        if (!includeZero && raw <= 0) continue;
+        // Only count value if product is in rows
+        if (!rows.some((r) => r.product_id === p.id)) continue;
+        value_sum += stockValue(p.price, raw);
+      }
+      return {
+        department: dept,
+        header: location_headers[i],
+        line_count,
+        qty_sum,
+        value_sum,
       };
-      deptMap.set(r.department, sub);
     }
-    sub.line_count += 1;
-    sub.qty_sum += r.qty;
-    sub.value_sum += r.line_value;
-  }
-  const by_department = Array.from(deptMap.values()).sort((a, b) =>
-    a.department.localeCompare(b.department)
   );
 
-  const grand_total = rows.reduce((s, r) => s + r.line_value, 0);
-  const grand_qty = rows.reduce((s, r) => s + r.qty, 0);
+  const grand_total = rows.reduce((s, r) => s + r.total_value, 0);
+  const grand_qty = rows.reduce((s, r) => s + r.total_qty, 0);
 
-  const fl = filtersLabel({ location, category, stockGroup });
+  const fl = filtersLabel({ location, category, stockGroup, includeZero });
   const title = `Clinic Inventory - Current stock report · As of ${asOf} · ${fl}`;
 
-  const expired_count = rows.filter((r) => r.status === "Expired").length;
-  const expiring_soon_count = rows.filter(
-    (r) =>
-      r.status === "Expires this month" ||
-      r.status === "Expiring ≤90 days" ||
-      r.status === "Expiring ≤6 months"
+  const expired_count = rows.filter((r) => isExpiredStatus(r.status)).length;
+  const expiring_soon_count = rows.filter((r) =>
+    isExpiringSoonStatus(r.status)
   ).length;
 
   return {
@@ -240,8 +343,11 @@ export function buildStockValueReport(
     location,
     category,
     group: stockGroup,
+    include_zero: includeZero,
     title,
     filters_label: fl,
+    location_columns,
+    location_headers,
     rows,
     by_department,
     grand_total,
@@ -265,46 +371,56 @@ function fmtMoney(n: number): string {
 }
 
 function fmtQty(n: number): string {
-  return Number.isInteger(n) ? String(n) : n.toFixed(4).replace(/\.?0+$/, "") || "0";
+  return Number.isInteger(n)
+    ? String(n)
+    : n.toFixed(4).replace(/\.?0+$/, "") || "0";
 }
 
 export function stockValueReportToCsv(report: StockValueReport): string {
   const lines: string[] = [];
   lines.push([csvEscape(report.title)].join(","));
   lines.push(
-    [
-      csvEscape(`As of ${report.as_of}`),
-      csvEscape(report.filters_label),
-    ].join(",")
+    [csvEscape(`As of ${report.as_of}`), csvEscape(report.filters_label)].join(
+      ","
+    )
   );
   lines.push("");
   const header = [
-    "product",
     "category",
-    "department",
-    "qty",
-    "total_value_aed",
+    "product",
     "expiry",
+    "status",
+    "total_qty",
+    "total_value_aed",
+    ...report.location_headers.map((h) => h.toLowerCase()),
   ];
   lines.push(header.join(","));
   for (const r of report.rows) {
     lines.push(
       [
-        csvEscape(r.product),
         csvEscape(r.category),
-        csvEscape(r.department),
-        csvEscape(fmtQty(r.qty)),
-        csvEscape(fmtMoney(r.line_value)),
+        csvEscape(r.product),
         csvEscape(r.expiry || ""),
+        csvEscape(r.status),
+        csvEscape(fmtQty(r.total_qty)),
+        csvEscape(fmtMoney(r.total_value)),
+        ...report.location_columns.map((loc) =>
+          csvEscape(fmtQty(r.qty_by_location[loc] || 0))
+        ),
       ].join(",")
     );
   }
   lines.push("");
-  lines.push(["department_subtotal", "line_count", "qty_sum", "value_aed"].join(","));
+  lines.push(
+    ["location_subtotal", "header", "sku_lines", "qty_sum", "value_aed"].join(
+      ","
+    )
+  );
   for (const d of report.by_department) {
     lines.push(
       [
         csvEscape(d.department),
+        csvEscape(d.header),
         csvEscape(d.line_count),
         csvEscape(fmtQty(d.qty_sum)),
         csvEscape(fmtMoney(d.value_sum)),
@@ -314,6 +430,7 @@ export function stockValueReportToCsv(report: StockValueReport): string {
   lines.push(
     [
       csvEscape("GRAND TOTAL"),
+      csvEscape(""),
       csvEscape(report.row_count),
       csvEscape(fmtQty(report.grand_qty)),
       csvEscape(fmtMoney(report.grand_total)),

@@ -103,6 +103,8 @@ export default function ReportsPage() {
   >({});
   const [format, setFormat] = useState<ReportFormat>("excel");
   const [includeImports, setIncludeImports] = useState(false);
+  /** Staff transaction history collapsed by default — Reports shows stock only. */
+  const [showTransactions, setShowTransactions] = useState(false);
   const [report, setReport] = useState<MonthlyStaffReport | null>(null);
   const [generated, setGenerated] = useState<GeneratedMeta | null>(null);
   const [loading, setLoading] = useState(false);
@@ -326,7 +328,7 @@ export default function ReportsPage() {
         <div>
           <h1 className="text-lg font-bold">Reports</h1>
           <p className="text-xs text-slate-500">
-            Current stock snapshot first · staff transaction history below
+            Current stock snapshot (qty · value · expiry). Transaction history is optional below.
           </p>
         </div>
         <Link href="/" className="text-xs font-semibold text-brand-700">
@@ -336,9 +338,29 @@ export default function ReportsPage() {
 
       <StockValueReportSection />
 
+      <div className="no-print border-t-2 border-slate-200 pt-4 mt-2">
+        <button
+          type="button"
+          className="btn-secondary text-sm w-full"
+          onClick={() => setShowTransactions((v) => !v)}
+          aria-expanded={showTransactions}
+        >
+          {showTransactions
+            ? "Hide transaction history"
+            : "Show transaction history"}
+        </button>
+        {!showTransactions && (
+          <p className="mt-2 text-[11px] text-slate-500 text-center">
+            Staff activity (stock added / transfers / use) stays hidden so
+            Generate on Current stock never mixes with transactions.
+          </p>
+        )}
+      </div>
+
+      {showTransactions && (
       <section
         id="staff-transaction-history"
-        className="space-y-4 border-t-2 border-slate-300 pt-6 mt-6"
+        className="space-y-4 border-t border-slate-200 pt-4 mt-2"
       >
       <div className="no-print">
         <h2 className="text-lg font-bold">Staff transaction history</h2>
@@ -720,6 +742,7 @@ export default function ReportsPage() {
         </>
       )}
       </section>
+      )}
 
     </div>
   );

@@ -26,7 +26,60 @@ function fmtMoney(n: number): string {
   });
 }
 
-/** Build a multi-page landscape current-stock snapshot PDF (qty, value, expiry). */
+type Col = { key: string; x: number; w: number; label: string; align: "left" | "right" };
+
+/**
+ * Build column layout for pivot table:
+ * CATEGORY | PRODUCT | EXPIRY | STATUS | TOTAL | VALUE | MAIN | AHMAD | …
+ */
+function buildColumns(
+  report: StockValueReport,
+  marginX: number,
+  contentWidth: number
+): Col[] {
+  const locCount = Math.max(report.location_columns.length, 1);
+  const fixed = [
+    { key: "category", label: "CATEGORY", prefer: 95, min: 70, align: "left" as const },
+    { key: "product", label: "PRODUCT", prefer: 150, min: 100, align: "left" as const },
+    { key: "expiry", label: "EXPIRY", prefer: 48, min: 40, align: "left" as const },
+    { key: "status", label: "STATUS", prefer: 78, min: 60, align: "left" as const },
+    { key: "total", label: "TOTAL", prefer: 40, min: 32, align: "right" as const },
+    { key: "value", label: "VALUE AED", prefer: 68, min: 55, align: "right" as const },
+  ];
+  const locPrefer = locCount <= 5 ? 48 : locCount <= 7 ? 40 : 34;
+  const locMin = 28;
+
+  const fixedPrefer = fixed.reduce((s, c) => s + c.prefer, 0);
+  const locPreferTotal = locPrefer * locCount;
+  const totalPrefer = fixedPrefer + locPreferTotal;
+  const scale = contentWidth / totalPrefer;
+
+  const cols: Col[] = [];
+  let x = marginX + 2;
+  for (const f of fixed) {
+    const w = Math.max(f.min, f.prefer * scale);
+    cols.push({ key: f.key, x, w, label: f.label, align: f.align });
+    x += w;
+  }
+  for (let i = 0; i < report.location_columns.length; i++) {
+    const w = Math.max(locMin, locPrefer * scale);
+    cols.push({
+      key: `loc:${report.location_columns[i]}`,
+      x,
+      w,
+      label: report.location_headers[i] || locationFallback(i),
+      align: "right",
+    });
+    x += w;
+  }
+  return cols;
+}
+
+function locationFallback(i: number): string {
+  return `L${i + 1}`;
+}
+
+/** Build a multi-page landscape current-stock pivot PDF (qty, value, expiry). */
 export async function stockValueReportToPdf(
   report: StockValueReport
 ): Promise<Uint8Array> {
@@ -36,23 +89,18 @@ export async function stockValueReportToPdf(
 
   const pageWidth = A4_LANDSCAPE.width;
   const pageHeight = A4_LANDSCAPE.height;
-  const marginX = 28;
+  const marginX = 22;
   const footerH = 22;
   const bottomLimit = footerH + 10;
   const contentRight = pageWidth - marginX;
   const contentWidth = contentRight - marginX;
 
-  const cols = {
-    product: { x: marginX + 4, w: 210 },
-    category: { x: marginX + 218, w: 120 },
-    dept: { x: marginX + 342, w: 130 },
-    qty: { x: marginX + 476, w: 55 },
-    value: { x: marginX + 535, w: 100 },
-    expiry: { x: marginX + 640, w: 110 },
-  };
+  const cols = buildColumns(report, marginX, contentWidth);
+  const colByKey = (key: string) => cols.find((c) => c.key === key)!;
+
   const tableHeaderH = 18;
-  const rowH = 14;
-  const fontSize = 8;
+  const rowH = 13;
+  const fontSize = 7;
 
   let page: PDFPage = doc.addPage([pageWidth, pageHeight]);
   let y = pageHeight - 18;
@@ -131,12 +179,13 @@ export async function stockValueReportToPdf(
       color: PURPLE,
     });
     const hy = y - 8;
-    drawTextAt("PRODUCT", cols.product.x, hy, 7, true, WHITE, cols.product.w - 2);
-    drawTextAt("CATEGORY", cols.category.x, hy, 7, true, WHITE, cols.category.w - 2);
-    drawTextAt("DEPARTMENT", cols.dept.x, hy, 7, true, WHITE, cols.dept.w - 2);
-    drawTextAt("QTY", cols.qty.x, hy, 7, true, WHITE, cols.qty.w - 2);
-    drawTextAt("TOTAL VALUE", cols.value.x, hy, 7, true, WHITE, cols.value.w - 2);
-    drawTextAt("EXPIRY", cols.expiry.x, hy, 7, true, WHITE, cols.expiry.w - 2);
+    for (const c of cols) {
+      if (c.align === "right") {
+        drawRight(c.label, c.x + c.w - 3, hy, 6.5, true, WHITE);
+      } else {
+        drawTextAt(c.label, c.x, hy, 6.5, true, WHITE, c.w - 2);
+      }
+    }
     y -= tableHeaderH + 2;
   };
 
@@ -211,7 +260,14 @@ export async function stockValueReportToPdf(
   drawTextAt("CURRENT STOCK SUMMARY", marginX, y - 18, 12, true, WHITE);
   y -= 36;
 
-  drawTextAt(report.filters_label || "All locations / categories", marginX, y, 8, false, MUTED);
+  drawTextAt(
+    report.filters_label || "All locations / categories",
+    marginX,
+    y,
+    8,
+    false,
+    MUTED
+  );
   y -= 14;
 
   // KPI cards
@@ -256,7 +312,9 @@ export async function stockValueReportToPdf(
 
   if (report.rows.length === 0) {
     drawTextAt(
-      "No stock with quantity greater than zero for these filters.",
+      report.include_zero
+        ? "No products match these filters."
+        : "No stock with quantity greater than zero for these filters.",
       marginX,
       y,
       10
@@ -267,22 +325,8 @@ export async function stockValueReportToPdf(
 
   drawTableHeader();
 
-  let lastDept = "";
   let rowIndex = 0;
   for (const r of report.rows) {
-    if (r.department !== lastDept) {
-      lastDept = r.department;
-      ensureSpace(rowH + tableHeaderH, true);
-      page.drawRectangle({
-        x: marginX,
-        y: y - 3,
-        width: contentWidth,
-        height: rowH,
-        color: KPI_FILLS[0],
-      });
-      drawTextAt(r.department, marginX + 4, y, 8, true, PURPLE, contentWidth - 8);
-      y -= rowH;
-    }
     ensureSpace(rowH + 2, true);
     const zebra = rowIndex % 2 === 1;
     if (zebra) {
@@ -294,20 +338,32 @@ export async function stockValueReportToPdf(
         color: ZEBRA,
       });
     }
-    drawTextAt(r.product, cols.product.x, y, fontSize, false, TEXT, cols.product.w - 2);
-    drawTextAt(r.category, cols.category.x, y, fontSize, false, TEXT, cols.category.w - 2);
-    drawTextAt(r.department, cols.dept.x, y, fontSize, false, TEXT, cols.dept.w - 2);
-    drawRight(fmtQty(r.qty), cols.qty.x + cols.qty.w - 4, y, fontSize);
-    drawRight(fmtMoney(r.line_value), cols.value.x + cols.value.w - 4, y, fontSize, true);
-    drawTextAt(
-      r.expiry || "—",
-      cols.expiry.x,
-      y,
-      fontSize,
-      false,
-      TEXT,
-      cols.expiry.w - 2
-    );
+
+    const cat = colByKey("category");
+    const prod = colByKey("product");
+    const exp = colByKey("expiry");
+    const st = colByKey("status");
+    const tot = colByKey("total");
+    const val = colByKey("value");
+
+    drawTextAt(r.category, cat.x, y, fontSize, false, TEXT, cat.w - 2);
+    drawTextAt(r.product, prod.x, y, fontSize, false, TEXT, prod.w - 2);
+    drawTextAt(r.expiry || "—", exp.x, y, fontSize, false, TEXT, exp.w - 2);
+    drawTextAt(r.status, st.x, y, fontSize, false, TEXT, st.w - 2);
+    drawRight(fmtQty(r.total_qty), tot.x + tot.w - 3, y, fontSize);
+    drawRight(fmtMoney(r.total_value), val.x + val.w - 3, y, fontSize, true);
+
+    for (const loc of report.location_columns) {
+      const c = colByKey(`loc:${loc}`);
+      if (!c) continue;
+      drawRight(
+        fmtQty(r.qty_by_location[loc] || 0),
+        c.x + c.w - 3,
+        y,
+        fontSize
+      );
+    }
+
     page.drawLine({
       start: { x: marginX, y: y - 4 },
       end: { x: contentRight, y: y - 4 },
@@ -328,43 +384,29 @@ export async function stockValueReportToPdf(
     height: rowH + 4,
     color: PURPLE,
   });
-  drawTextAt("GRAND TOTAL", cols.product.x, y, 9, true, WHITE);
+  drawTextAt("GRAND TOTAL", colByKey("category").x, y, 8, true, WHITE);
   drawRight(
     fmtQty(report.grand_qty),
-    cols.qty.x + cols.qty.w - 4,
+    colByKey("total").x + colByKey("total").w - 3,
     y,
-    9,
+    8,
     true,
     WHITE
   );
   drawRight(
     `AED ${fmtMoney(report.grand_total)}`,
-    cols.value.x + cols.value.w - 4,
+    colByKey("value").x + colByKey("value").w - 3,
     y,
-    9,
+    8,
     true,
     WHITE
   );
-  y -= rowH + 10;
-
-  if (report.by_department.length > 0) {
-    ensureSpace(rowH * (report.by_department.length + 2), false);
-    drawTextAt("Subtotals by department", marginX, y, 9, true, PURPLE);
-    y -= rowH;
-    for (const d of report.by_department) {
-      ensureSpace(rowH, false);
-      drawTextAt(
-        `${d.department}:  AED ${fmtMoney(d.value_sum)}  (${d.line_count} lines, qty ${fmtQty(d.qty_sum)})`,
-        marginX + 8,
-        y,
-        fontSize,
-        false,
-        TEXT,
-        contentWidth - 16
-      );
-      y -= rowH;
-    }
+  for (const d of report.by_department) {
+    const c = colByKey(`loc:${d.department}`);
+    if (!c) continue;
+    drawRight(fmtQty(d.qty_sum), c.x + c.w - 3, y, 7, true, WHITE);
   }
+  y -= rowH + 10;
 
   drawFooter(page, pageNum);
   return doc.save();
