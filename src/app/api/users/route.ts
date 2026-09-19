@@ -102,6 +102,14 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    if (!Array.isArray(store.removed_usernames)) {
+      store.removed_usernames = [];
+    }
+    // Allow re-adding a previously deleted staff username (including seed users).
+    store.removed_usernames = store.removed_usernames.filter(
+      (u) => u !== username
+    );
+
     const id = store.nextIds.users++;
     const user: User = {
       id,
@@ -173,6 +181,12 @@ export async function DELETE(req: NextRequest) {
     }
 
     store.users = store.users.filter((u) => u.username !== username);
+    if (!Array.isArray(store.removed_usernames)) {
+      store.removed_usernames = [];
+    }
+    if (!store.removed_usernames.includes(username)) {
+      store.removed_usernames.push(username);
+    }
     await persistStore(store);
     return NextResponse.json({ ok: true, username });
   } catch (e) {

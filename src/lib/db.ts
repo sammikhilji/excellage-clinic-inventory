@@ -17,6 +17,8 @@ export interface StoreData {
   users: User[];
   /** Editable clinic locations (defaults to LOCATIONS). */
   locations: string[];
+  /** Usernames deliberately deleted; do not re-seed from SEED_USER_DEFS. */
+  removed_usernames: string[];
   nextIds: {
     products: number;
     stock: number;
@@ -36,6 +38,7 @@ function emptyStore(): StoreData {
     activity: [],
     users: [],
     locations: [...LOCATIONS],
+    removed_usernames: [],
     nextIds: { products: 1, stock: 1, activity: 1, users: 1 },
   };
 }
@@ -46,10 +49,17 @@ function ensureUsersSeeded(store: StoreData): boolean {
     store.users = [];
     changed = true;
   }
+  if (!Array.isArray(store.removed_usernames)) {
+    store.removed_usernames = [];
+    changed = true;
+  }
   if (!store.nextIds.users) {
     store.nextIds.users = 1;
     changed = true;
   }
+  const removed = new Set(
+    store.removed_usernames.map((u) => String(u).trim().toLowerCase())
+  );
   // Migrate legacy activity rows without username
   for (const a of store.activity) {
     if (a.username === undefined) {
@@ -74,12 +84,17 @@ function ensureUsersSeeded(store: StoreData): boolean {
     }
   }
   if (store.users.length === 0) {
-    const seeded = buildSeedUsers(store.nextIds.users);
-    store.users.push(...seeded);
-    store.nextIds.users =
-      Math.max(store.nextIds.users, ...seeded.map((u) => u.id)) + 1;
-    changed = true;
-    console.log(`Seeded ${seeded.length} users`);
+    // Brand-new store: seed defaults, but still honor any removed list.
+    const seeded = buildSeedUsers(store.nextIds.users).filter(
+      (u) => !removed.has(u.username)
+    );
+    if (seeded.length > 0) {
+      store.users.push(...seeded);
+      store.nextIds.users =
+        Math.max(store.nextIds.users, ...seeded.map((u) => u.id)) + 1;
+      changed = true;
+      console.log(`Seeded ${seeded.length} users`);
+    }
   } else {
     const existing = new Set(store.users.map((u) => u.username));
     let nextId =
@@ -87,6 +102,7 @@ function ensureUsersSeeded(store: StoreData): boolean {
     const createdAt = new Date().toISOString().replace("T", " ").slice(0, 19);
     for (const def of SEED_USER_DEFS) {
       if (existing.has(def.username)) continue;
+      if (removed.has(def.username)) continue;
       store.users.push({
         id: nextId++,
         username: def.username,
@@ -148,6 +164,9 @@ function normalizeStore(parsed: Partial<StoreData> | null | undefined): StoreDat
       Array.isArray(parsed.locations) && parsed.locations.length > 0
         ? parsed.locations.map(String)
         : [...LOCATIONS],
+    removed_usernames: Array.isArray(parsed.removed_usernames)
+      ? parsed.removed_usernames.map((u) => String(u).trim().toLowerCase()).filter(Boolean)
+      : [],
     nextIds: {
       products: parsed.nextIds.products ?? 1,
       stock: parsed.nextIds.stock ?? 1,

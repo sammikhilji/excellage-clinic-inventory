@@ -44,6 +44,7 @@ export default function SettingsPage() {
   const [userErr, setUserErr] = useState<string | null>(null);
   const [createdPassword, setCreatedPassword] = useState<string | null>(null);
   const [createdUsername, setCreatedUsername] = useState<string | null>(null);
+  const [okUser, setOkUser] = useState<string | null>(null);
 
   const loadSettings = useCallback(async () => {
     setLoading(true);
@@ -186,6 +187,7 @@ export default function SettingsPage() {
   async function createUser(e: React.FormEvent) {
     e.preventDefault();
     setUserErr(null);
+    setOkUser(null);
     setCreatedPassword(null);
     setCreatedUsername(null);
     setBusyUser(true);
@@ -241,6 +243,7 @@ export default function SettingsPage() {
     );
     if (!ok) return;
     setUserErr(null);
+    setOkUser(null);
     setBusyUser(true);
     try {
       const res = await fetch(
@@ -252,6 +255,7 @@ export default function SettingsPage() {
         setUserErr(data.error || "Delete failed");
         return;
       }
+      setOkUser("User deleted and saved.");
       await loadUsers();
     } catch {
       setUserErr("Network error");
@@ -297,6 +301,7 @@ export default function SettingsPage() {
           Add or remove clinic logins. Generated passwords are shown once —
           copy them before leaving this page.
         </p>
+        <p className="text-xs text-slate-500">Deletes are saved permanently.</p>
 
         <ul className="divide-y divide-slate-100 rounded-xl border border-slate-100">
           {staff.map((u) => (
@@ -404,6 +409,11 @@ export default function SettingsPage() {
               </button>
             </div>
           </div>
+          {okUser && (
+            <div className="rounded-xl bg-emerald-50 border border-emerald-200 px-3 py-2 text-sm text-emerald-900">
+              {okUser}
+            </div>
+          )}
           {userErr && (
             <div className="rounded-xl bg-rose-50 border border-rose-200 px-3 py-2 text-sm text-rose-800">
               {userErr}
@@ -423,7 +433,7 @@ export default function SettingsPage() {
             </div>
           )}
           <button type="submit" className="btn-primary w-full" disabled={busyUser}>
-            {busyUser ? "Saving…" : "Create user"}
+            {busyUser ? "Saving…" : "Save user"}
           </button>
         </form>
 
