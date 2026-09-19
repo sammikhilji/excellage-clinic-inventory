@@ -170,7 +170,7 @@ export default function InventoryPage() {
                 <StatusBadge status={p.status} />
                 {p.expiry && <span className="text-[10px] text-slate-500">Exp {p.expiry}</span>}
                 {p.price != null && (
-                  <span className="text-[10px] font-medium text-slate-600">
+                  <span className="rounded-lg bg-sky-50 px-2 py-1 text-[10px] font-medium text-sky-800">
                     {p.price.toLocaleString(undefined, {
                       style: "currency",
                       currency: "AED",
@@ -180,7 +180,7 @@ export default function InventoryPage() {
                   </span>
                 )}
                 {p.price != null && (
-                  <span className="text-[10px] font-medium text-slate-600">
+                  <span className="rounded-lg bg-emerald-50 px-2 py-1.5 text-[10px] font-semibold text-emerald-800">
                     Value:{" "}
                     {stockValue(p.price, p.total).toLocaleString(undefined, {
                       style: "currency",

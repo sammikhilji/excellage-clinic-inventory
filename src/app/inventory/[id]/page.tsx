@@ -230,22 +230,20 @@ export default function ProductDetailPage() {
           <span className="text-sm font-medium text-slate-500">{unit}</span>
         </p>
         {item.price != null && (
-          <p className="text-sm text-slate-600">
-            Price:{" "}
-            <span className="font-semibold">
-              {item.price.toLocaleString(undefined, {
-                style: "currency",
-                currency: "AED",
-                minimumFractionDigits: 0,
-                maximumFractionDigits: 2,
-              })}
+          <div className="flex flex-wrap gap-2 pt-1">
+            <span className="inline-flex items-center rounded-lg bg-sky-50 px-2 py-1 text-sm text-sky-800">
+              Price:{" "}
+              <span className="ml-1 font-semibold">
+                {item.price.toLocaleString(undefined, {
+                  style: "currency",
+                  currency: "AED",
+                  minimumFractionDigits: 0,
+                  maximumFractionDigits: 2,
+                })}
+              </span>
             </span>
-          </p>
-        )}
-        {item.price != null && (
-          <p className="text-sm text-slate-600">
-            Total stock value:{" "}
-            <span className="font-semibold">
+            <span className="inline-flex items-center rounded-lg bg-emerald-50 px-2 py-1.5 text-sm font-semibold text-emerald-800">
+              Total stock value:{" "}
               {stockValue(item.price, item.total).toLocaleString(undefined, {
                 style: "currency",
                 currency: "AED",
@@ -253,7 +251,7 @@ export default function ProductDetailPage() {
                 maximumFractionDigits: 2,
               })}
             </span>
-          </p>
+          </div>
         )}
       </div>
 

@@ -96,9 +96,9 @@ export default function DashboardPage() {
           <span className="font-semibold text-slate-700">{data.totalProducts}</span>{" "}
           products
         </p>
-        <p className="text-xs font-semibold text-slate-700">
+        <p className="rounded-lg bg-emerald-50 px-2 py-1.5 text-xs font-semibold text-emerald-800">
           {formatAed(data.totalStockValue)}
-          <span className="ml-1 font-normal text-slate-400">total</span>
+          <span className="ml-1 font-normal text-emerald-700/70">total</span>
         </p>
       </div>
 
@@ -116,7 +116,7 @@ export default function DashboardPage() {
               <p className="mt-1 text-2xl font-bold tabular-nums">
                 {Number(g.totalQty).toFixed(1)}
               </p>
-              <p className="mt-0.5 text-sm font-semibold text-slate-700">
+              <p className="mt-1 inline-flex rounded-lg bg-emerald-50 px-2 py-1.5 text-sm font-semibold text-emerald-800">
                 {formatAed(g.totalStockValue)}
               </p>
               <p className="mt-1 text-[11px] text-slate-500">
