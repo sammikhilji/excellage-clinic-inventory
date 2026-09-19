@@ -6,6 +6,7 @@ import {
   snapshotFromReport,
 } from "@/lib/main-store-stock-report";
 import { mainStoreReportToPdf } from "@/lib/main-store-stock-report-pdf";
+import { parseMainStoreReportParams } from "@/lib/main-store-stock-report-params";
 
 export const dynamic = "force-dynamic";
 
@@ -25,8 +26,12 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const date = req.nextUrl.searchParams.get("date");
-    const report = buildMainStoreReport(store, date);
+    const parsed = parseMainStoreReportParams(req);
+    if ("error" in parsed) {
+      return NextResponse.json({ error: parsed.error }, { status: 400 });
+    }
+
+    const report = buildMainStoreReport(store, parsed);
     let pdfBytes: Uint8Array;
     try {
       pdfBytes = await mainStoreReportToPdf(report);
@@ -40,11 +45,11 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // Persist this snapshot as prev for next run
+    // Persist this snapshot (To date) as prev for next run
     store.main_store_report_snapshot = snapshotFromReport(report);
     await persistStore(store);
 
-    const filename = `Main_Store_Stock_Report_${report.snapshot_date}.pdf`;
+    const filename = `Main_Store_Stock_Report_${report.prev_date}_to_${report.snapshot_date}.pdf`;
     return new NextResponse(Buffer.from(pdfBytes), {
       status: 200,
       headers: {
@@ -54,6 +59,8 @@ export async function GET(req: NextRequest) {
         Pragma: "no-cache",
         "X-Report-Layout": "main-store-9page-v1",
         "X-Report-Pages": "9",
+        "X-Report-From": report.prev_date,
+        "X-Report-To": report.snapshot_date,
       },
     });
   } catch (e) {

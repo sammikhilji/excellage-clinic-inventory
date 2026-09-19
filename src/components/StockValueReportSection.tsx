@@ -25,6 +25,15 @@ function ymdInDubai(d = new Date()): string {
   }
 }
 
+function defaultDateRange(storedFrom?: string | null) {
+  const to = ymdInDubai();
+  const from =
+    storedFrom && /^\d{4}-\d{2}-\d{2}$/.test(storedFrom)
+      ? storedFrom
+      : `${to.slice(0, 7)}-01`;
+  return { from, to };
+}
+
 function triggerBlobDownload(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -49,7 +58,8 @@ function fmtQty(n: number) {
   return Number.isInteger(n) ? String(n) : n.toFixed(2).replace(/\.?0+$/, "") || "0";
 }
 
-type ReportFormat = "pdf" | "csv";
+type MainFormat = "pdf" | "excel";
+type LegacyFormat = "pdf" | "csv";
 type ScopeValue = "" | StockGroup;
 
 type GeneratedMeta = {
@@ -58,7 +68,7 @@ type GeneratedMeta = {
   category: string;
   scope: ScopeValue;
   includeZero: boolean;
-  format: ReportFormat;
+  format: LegacyFormat;
 };
 
 const SCOPE_OPTIONS: { value: ScopeValue; label: string }[] = [
@@ -69,26 +79,32 @@ const SCOPE_OPTIONS: { value: ScopeValue; label: string }[] = [
 ];
 
 export default function StockValueReportSection() {
-  const [date, setDate] = useState(() => ymdInDubai());
+  const initial = useMemo(() => defaultDateRange(), []);
+  const [from, setFrom] = useState(initial.from);
+  const [to, setTo] = useState(initial.to);
   const [location, setLocation] = useState("");
   const [category, setCategory] = useState("");
   /** Default Scope = Products so Crash Cart does not dominate. */
   const [scope, setScope] = useState<ScopeValue>("products");
-  const [includeZero, setIncludeZero] = useState(false);
-  const [format, setFormat] = useState<ReportFormat>("pdf");
+  const [mainFormat, setMainFormat] = useState<MainFormat>("pdf");
   const [locations, setLocations] = useState<string[]>([...LOCATIONS]);
   const [allCategories, setAllCategories] = useState<string[]>([]);
   const [categoryMeta, setCategoryMeta] = useState<Record<string, StockGroup>>(
     {}
   );
+  const [mainLoading, setMainLoading] = useState(false);
+  const [mainErr, setMainErr] = useState<string | null>(null);
+
+  // Legacy short pivot (collapsed)
+  const [date, setDate] = useState(() => ymdInDubai());
+  const [includeZero, setIncludeZero] = useState(false);
+  const [format, setFormat] = useState<LegacyFormat>("pdf");
   const [report, setReport] = useState<StockValueReport | null>(null);
   const [generated, setGenerated] = useState<GeneratedMeta | null>(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const [mainLoading, setMainLoading] = useState(false);
-  const [mainErr, setMainErr] = useState<string | null>(null);
-  const [mainFormat, setMainFormat] = useState<"pdf" | "csv">("pdf");
 
+  const rangeInvalid = !from || !to || from > to;
 
   const filteredCategories = useMemo(() => {
     if (!scope) return allCategories;
@@ -105,9 +121,10 @@ export default function StockValueReportSection() {
     let cancelled = false;
     (async () => {
       try {
-        const [prodRes, settingsRes] = await Promise.all([
+        const [prodRes, settingsRes, metaRes] = await Promise.all([
           fetch("/api/products", { credentials: "include" }),
           fetch("/api/settings", { credentials: "include" }),
+          fetch("/api/reports/main-store-stock", { credentials: "include" }),
         ]);
         if (prodRes.ok) {
           const data = await prodRes.json();
@@ -138,6 +155,14 @@ export default function StockValueReportSection() {
             setLocations(d.locations);
           }
         }
+        if (metaRes.ok) {
+          const m = await metaRes.json();
+          if (!cancelled && m?.default_from) {
+            const r = defaultDateRange(String(m.default_from));
+            setFrom(r.from);
+            setTo(r.to);
+          }
+        }
       } catch {
         /* optional filter lists */
       }
@@ -156,7 +181,7 @@ export default function StockValueReportSection() {
     generated.scope === scope &&
     generated.includeZero === includeZero;
 
-  const buildQuery = useCallback(() => {
+  const buildLegacyQuery = useCallback(() => {
     const q = new URLSearchParams();
     if (date) q.set("date", date);
     if (location) q.set("location", location);
@@ -165,6 +190,17 @@ export default function StockValueReportSection() {
     if (includeZero) q.set("includeZero", "1");
     return q.toString();
   }, [date, location, category, scope, includeZero]);
+
+  const buildMainQuery = useCallback(() => {
+    const q = new URLSearchParams();
+    if (from) q.set("from", from);
+    if (to) q.set("to", to);
+    if (location) q.set("location", location);
+    if (category) q.set("category", category);
+    if (scope) q.set("group", scope);
+    else q.set("group", "");
+    return q.toString();
+  }, [from, to, location, category, scope]);
 
   const generateReport = async () => {
     if (!date) {
@@ -180,7 +216,7 @@ export default function StockValueReportSection() {
 
     setLoading(true);
     setErr(null);
-    const qs = `${buildQuery()}&v=3`;
+    const qs = `${buildLegacyQuery()}&v=3`;
     const downloadPath =
       format === "pdf"
         ? `/api/reports/stock-value.pdf?${qs}`
@@ -283,145 +319,120 @@ export default function StockValueReportSection() {
   const locHeaders = report?.location_headers ?? [];
 
   const generateMainStore = useCallback(async () => {
+    if (!from || !to) {
+      setMainErr("Select From and To dates");
+      return;
+    }
+    if (from > to) {
+      setMainErr("From must be on or before To");
+      return;
+    }
     setMainLoading(true);
     setMainErr(null);
     try {
-      const qs = new URLSearchParams();
-      if (date) qs.set("date", date);
+      const qs = buildMainQuery();
       const path =
-        mainFormat === "csv"
-          ? `/api/reports/main-store-stock.csv?${qs}`
+        mainFormat === "excel"
+          ? `/api/reports/main-store-stock.xlsx?${qs}`
           : `/api/reports/main-store-stock.pdf?${qs}`;
-      const res = await fetch(path, { credentials: "include" });
+      const res = await fetch(path, {
+        credentials: "include",
+        cache: "no-store",
+      });
       if (!res.ok) {
         let msg = `Generate failed (${res.status})`;
         try {
           const j = await res.json();
           if (j?.error) msg = j.error;
-        } catch { /* ignore */ }
+        } catch {
+          /* ignore */
+        }
         throw new Error(msg);
+      }
+      const ct = res.headers.get("content-type") || "";
+      const looksOk =
+        mainFormat === "pdf"
+          ? ct.includes("application/pdf")
+          : ct.includes("spreadsheetml") ||
+            ct.includes("octet-stream") ||
+            ct.includes("application/vnd.openxmlformats");
+      if (!looksOk) {
+        throw new Error(
+          `${mainFormat === "excel" ? "Excel" : "PDF"} download failed (unexpected type)`
+        );
       }
       const blob = await res.blob();
       const cd = res.headers.get("Content-Disposition") || "";
       const m = /filename="([^"]+)"/.exec(cd);
       const filename =
         m?.[1] ||
-        (mainFormat === "csv"
-          ? `Main_Store_Stock_Report_${date}.csv`
-          : `Main_Store_Stock_Report_${date}.pdf`);
+        (mainFormat === "excel"
+          ? `Main_Store_Stock_Report_${from}_to_${to}.xlsx`
+          : `Main_Store_Stock_Report_${from}_to_${to}.pdf`);
       triggerBlobDownload(blob, filename);
     } catch (e) {
       setMainErr(e instanceof Error ? e.message : "Generate failed");
     } finally {
       setMainLoading(false);
     }
-  }, [date, mainFormat]);
+  }, [from, to, mainFormat, buildMainQuery]);
 
   return (
-    <section
-      id="current-stock-report"
-      className="space-y-4 report-page"
-    >
+    <section id="current-stock-report" className="space-y-4 report-page">
       <div className="no-print">
         <h2 className="text-lg font-bold text-[#5C2D91]">
           Main Store Stock Report
         </h2>
         <p className="text-xs text-slate-500">
-          9-page purple landscape PDF: KPIs, consumption vs last snapshot,
-          holdings, priority / expiry, location &amp; category, full inventory
-          (all SKUs including OOS). Status = Normal (never OK). Crash cart
-          excluded. Saves snapshot for next comparison.
+          Full purple 9-page inventory (all SKUs, Normal status — never OK).
+          From = previous count date; To = current snapshot. Movement = To vs
+          From. Crash cart excluded when Scope is Products.
         </p>
       </div>
 
       <div className="no-print card p-4 space-y-3 border-2 border-[#5C2D91]/40">
-        <div>
-          <label className="label" htmlFor="ms-date">
-            Snapshot date
-          </label>
-          <input
-            id="ms-date"
-            type="date"
-            className="input"
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-          />
-        </div>
-        <div>
-          <p className="label mb-1.5">Format</p>
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              type="button"
-              className={`rounded-xl border px-3 py-2.5 text-sm font-semibold ${
-                mainFormat === "pdf"
-                  ? "border-[#5C2D91] bg-purple-50 text-[#5C2D91]"
-                  : "border-slate-200 bg-white text-slate-600"
-              }`}
-              onClick={() => setMainFormat("pdf")}
-            >
-              PDF (9 pages)
-            </button>
-            <button
-              type="button"
-              className={`rounded-xl border px-3 py-2.5 text-sm font-semibold ${
-                mainFormat === "csv"
-                  ? "border-[#5C2D91] bg-purple-50 text-[#5C2D91]"
-                  : "border-slate-200 bg-white text-slate-600"
-              }`}
-              onClick={() => setMainFormat("csv")}
-            >
-              CSV (full inventory)
-            </button>
+        {/* 1. From / To */}
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="label" htmlFor="ms-from">
+              From
+            </label>
+            <input
+              id="ms-from"
+              type="date"
+              className="input"
+              value={from}
+              max={to || undefined}
+              onChange={(e) => setFrom(e.target.value)}
+            />
+          </div>
+          <div>
+            <label className="label" htmlFor="ms-to">
+              To
+            </label>
+            <input
+              id="ms-to"
+              type="date"
+              className="input"
+              value={to}
+              min={from || undefined}
+              onChange={(e) => setTo(e.target.value)}
+            />
           </div>
         </div>
-        <button
-          type="button"
-          className="btn-primary text-sm w-full bg-[#5C2D91] hover:bg-[#4A2475]"
-          onClick={() => void generateMainStore()}
-          disabled={mainLoading || !date}
-        >
-          {mainLoading ? "Generating…" : "Generate Main Store Stock Report"}
-        </button>
-        {mainErr && <p className="text-sm text-rose-600">{mainErr}</p>}
-        <p className="text-[11px] text-slate-500">
-          Primary clinic inventory report. First run compares against the seeded
-          17 Sep 2026 count; each generate saves today&apos;s snapshot as the
-          next previous.
-        </p>
-      </div>
-
-      <details className="no-print card p-4">
-        <summary className="cursor-pointer text-sm font-semibold text-slate-700">
-          Advanced: legacy current-stock pivot (short table, OK / AED)
-        </summary>
-        <p className="mt-2 text-xs text-slate-500 mb-3">
-          Optional filtered pivot — not the Main Store 9-page report.
+        <p className="text-[11px] text-slate-500 -mt-1">
+          From = previous count date · To = current snapshot date (live stock
+          quantities). Defaults: last saved snapshot → today, or 1st of month →
+          today.
         </p>
 
-      <div className="no-print card p-4 space-y-3">
+        {/* 2. Department / category / scope */}
         <div>
-          <label className="label" htmlFor="sv-date">
-            Date (as of)
-          </label>
-          <input
-            id="sv-date"
-            type="date"
-            className="input"
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-          />
-          <p className="mt-1 text-[11px] text-slate-500">
-            Defaults to today (Asia/Dubai). Report always uses live current
-            stock — not a historical snapshot.
-          </p>
-        </div>
-
-        <div>
-          <label className="label" htmlFor="sv-department">
+          <label className="label" htmlFor="ms-department">
             Department
           </label>
           <select
-            id="sv-department"
+            id="ms-department"
             className="input"
             value={location}
             onChange={(e) => setLocation(e.target.value)}
@@ -433,17 +444,14 @@ export default function StockValueReportSection() {
               </option>
             ))}
           </select>
-          <p className="mt-1 text-[11px] text-slate-500">
-            All = every location column. Pick one to show only that column.
-          </p>
         </div>
 
         <div>
-          <label className="label" htmlFor="sv-category">
+          <label className="label" htmlFor="ms-category">
             Category
           </label>
           <select
-            id="sv-category"
+            id="ms-category"
             className="input"
             value={category}
             onChange={(e) => setCategory(e.target.value)}
@@ -458,11 +466,11 @@ export default function StockValueReportSection() {
         </div>
 
         <div>
-          <label className="label" htmlFor="sv-scope">
+          <label className="label" htmlFor="ms-scope">
             Scope
           </label>
           <select
-            id="sv-scope"
+            id="ms-scope"
             className="input"
             value={scope}
             onChange={(e) => setScope(e.target.value as ScopeValue)}
@@ -476,11 +484,11 @@ export default function StockValueReportSection() {
           <div className="mt-2 flex flex-wrap gap-1.5">
             {SCOPE_OPTIONS.map((o) => (
               <button
-                key={`sv-chip-${o.value || "all"}`}
+                key={`ms-chip-${o.value || "all"}`}
                 type="button"
                 className={`rounded-full px-2.5 py-1 text-[11px] font-semibold border ${
                   scope === o.value
-                    ? "bg-brand-600 text-white border-brand-600"
+                    ? "bg-[#5C2D91] text-white border-[#5C2D91]"
                     : "bg-white text-slate-600 border-slate-200"
                 }`}
                 onClick={() => setScope(o.value)}
@@ -493,66 +501,181 @@ export default function StockValueReportSection() {
           </div>
         </div>
 
-        <label className="flex items-start gap-2 text-sm text-slate-700 cursor-pointer">
-          <input
-            type="checkbox"
-            className="mt-0.5"
-            checked={includeZero}
-            onChange={(e) => setIncludeZero(e.target.checked)}
-          />
-          <span>
-            <span className="font-medium">Include zero stock</span>
-            <span className="block text-[11px] text-slate-500">
-              Off by default — only products with total qty &gt; 0.
-            </span>
-          </span>
-        </label>
-
+        {/* 3. Format PDF | Excel */}
         <div>
           <p className="label mb-1.5">Format</p>
           <div className="grid grid-cols-2 gap-2">
             <button
               type="button"
               className={`rounded-xl border px-3 py-2.5 text-sm font-semibold ${
-                format === "pdf"
-                  ? "border-brand-600 bg-brand-50 text-brand-800"
+                mainFormat === "pdf"
+                  ? "border-[#5C2D91] bg-purple-50 text-[#5C2D91]"
                   : "border-slate-200 bg-white text-slate-600"
               }`}
-              onClick={() => setFormat("pdf")}
+              onClick={() => setMainFormat("pdf")}
             >
               PDF
             </button>
             <button
               type="button"
               className={`rounded-xl border px-3 py-2.5 text-sm font-semibold ${
-                format === "csv"
-                  ? "border-brand-600 bg-brand-50 text-brand-800"
+                mainFormat === "excel"
+                  ? "border-[#5C2D91] bg-purple-50 text-[#5C2D91]"
                   : "border-slate-200 bg-white text-slate-600"
               }`}
-              onClick={() => setFormat("csv")}
+              onClick={() => setMainFormat("excel")}
             >
-              CSV
+              Excel
             </button>
           </div>
         </div>
 
+        {/* 4. Generate */}
         <button
           type="button"
-          className="btn-primary text-sm w-full"
-          onClick={() => void generateReport()}
-          disabled={loading || !date}
+          className="btn-primary text-sm w-full bg-[#5C2D91] hover:bg-[#4A2475]"
+          onClick={() => void generateMainStore()}
+          disabled={mainLoading || rangeInvalid}
         >
-          {loading ? "Generating…" : "Generate report"}
+          {mainLoading ? "Generating…" : "Generate report"}
         </button>
-
-        {!reportReady && !loading && (
-          <p className="text-[11px] text-slate-500">
-            Filters → PDF or CSV → Generate (downloads stock snapshot only —
-            never staff activity).
-          </p>
-        )}
+        {mainErr && <p className="text-sm text-rose-600">{mainErr}</p>}
+        <p className="text-[11px] text-slate-500">
+          Sequence: From/To → category/department/scope → PDF or Excel →
+          Generate. Primary clinic inventory report (full SKUs).
+        </p>
       </div>
 
+      <details className="no-print card p-4">
+        <summary className="cursor-pointer text-sm font-semibold text-slate-700">
+          Advanced: legacy current-stock pivot (short table, OK / AED)
+        </summary>
+        <p className="mt-2 text-xs text-slate-500 mb-3">
+          Optional filtered pivot — not the Main Store 9-page report.
+        </p>
+
+        <div className="no-print card p-4 space-y-3">
+          <div>
+            <label className="label" htmlFor="sv-date">
+              Date (as of)
+            </label>
+            <input
+              id="sv-date"
+              type="date"
+              className="input"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+            />
+          </div>
+
+          <div>
+            <label className="label" htmlFor="sv-department">
+              Department
+            </label>
+            <select
+              id="sv-department"
+              className="input"
+              value={location}
+              onChange={(e) => setLocation(e.target.value)}
+            >
+              <option value="">All</option>
+              {locations.map((l) => (
+                <option key={l} value={l}>
+                  {l}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="label" htmlFor="sv-category">
+              Category
+            </label>
+            <select
+              id="sv-category"
+              className="input"
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+            >
+              <option value="">All</option>
+              {filteredCategories.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="label" htmlFor="sv-scope">
+              Scope
+            </label>
+            <select
+              id="sv-scope"
+              className="input"
+              value={scope}
+              onChange={(e) => setScope(e.target.value as ScopeValue)}
+            >
+              {SCOPE_OPTIONS.map((o) => (
+                <option key={o.value || "all"} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <label className="flex items-start gap-2 text-sm text-slate-700 cursor-pointer">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={includeZero}
+              onChange={(e) => setIncludeZero(e.target.checked)}
+            />
+            <span>
+              <span className="font-medium">Include zero stock</span>
+              <span className="block text-[11px] text-slate-500">
+                Off by default — only products with total qty &gt; 0.
+              </span>
+            </span>
+          </label>
+
+          <div>
+            <p className="label mb-1.5">Format</p>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                className={`rounded-xl border px-3 py-2.5 text-sm font-semibold ${
+                  format === "pdf"
+                    ? "border-brand-600 bg-brand-50 text-brand-800"
+                    : "border-slate-200 bg-white text-slate-600"
+                }`}
+                onClick={() => setFormat("pdf")}
+              >
+                PDF
+              </button>
+              <button
+                type="button"
+                className={`rounded-xl border px-3 py-2.5 text-sm font-semibold ${
+                  format === "csv"
+                    ? "border-brand-600 bg-brand-50 text-brand-800"
+                    : "border-slate-200 bg-white text-slate-600"
+                }`}
+                onClick={() => setFormat("csv")}
+              >
+                CSV
+              </button>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            className="btn-primary text-sm w-full"
+            onClick={() => void generateReport()}
+            disabled={loading || !date}
+          >
+            {loading ? "Generating…" : "Generate legacy pivot"}
+          </button>
+        </div>
       </details>
 
       {loading && <p className="text-sm text-slate-500">Generating…</p>}

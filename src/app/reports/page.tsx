@@ -328,7 +328,7 @@ export default function ReportsPage() {
         <div>
           <h1 className="text-lg font-bold">Reports</h1>
           <p className="text-xs text-slate-500">
-            Main Store Stock Report (9-page purple PDF). Transaction history stays hidden by default.
+            Main Store Stock Report (From→To, PDF or Excel). Transaction history stays hidden by default.
           </p>
         </div>
         <Link href="/" className="text-xs font-semibold text-brand-700">

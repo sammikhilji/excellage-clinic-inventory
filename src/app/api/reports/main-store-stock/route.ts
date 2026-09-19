@@ -1,14 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ensureLocations, getStore } from "@/lib/db";
 import { REPORT_ALLOWED_ROLES } from "@/lib/monthly-staff-report-types";
-import {
-  buildMainStoreReport,
-  mainStoreReportToCsv,
-} from "@/lib/main-store-stock-report";
-import { parseMainStoreReportParams } from "@/lib/main-store-stock-report-params";
+import { getPrevSnapshot } from "@/lib/main-store-stock-report";
 
 export const dynamic = "force-dynamic";
 
+/** Lightweight meta for UI defaults (last snapshot / seed From date). */
 export async function GET(req: NextRequest) {
   try {
     const username = req.cookies.get("clinic_user")?.value?.toLowerCase();
@@ -24,20 +21,13 @@ export async function GET(req: NextRequest) {
         { status: 403 }
       );
     }
-    const parsed = parseMainStoreReportParams(req);
-    if ("error" in parsed) {
-      return NextResponse.json({ error: parsed.error }, { status: 400 });
-    }
-    const report = buildMainStoreReport(store, parsed);
-    const csv = mainStoreReportToCsv(report);
-    const filename = `Main_Store_Stock_Report_${report.prev_date}_to_${report.snapshot_date}.csv`;
-    return new NextResponse(csv, {
-      status: 200,
-      headers: {
-        "Content-Type": "text/csv; charset=utf-8",
-        "Content-Disposition": `attachment; filename="${filename}"`,
-        "Cache-Control": "no-store",
-      },
+    const saved = store.main_store_report_snapshot;
+    const prev = getPrevSnapshot(store);
+    return NextResponse.json({
+      last_snapshot_date: saved?.snapshot_date || null,
+      last_snapshot_label: saved?.label || null,
+      default_from: saved?.snapshot_date || prev.snapshot_date || "2026-09-17",
+      seed_date: "2026-09-17",
     });
   } catch (e) {
     console.error(e);

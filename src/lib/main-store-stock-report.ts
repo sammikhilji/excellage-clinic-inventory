@@ -175,17 +175,65 @@ function emptyLoc() {
   return { main: 0, ahmad: 0, saly: 0, niveen: 0, sassani: 0 };
 }
 
-/** Load prev snapshot from store or embedded 17 Sep seed. */
-export function getPrevSnapshot(store: StoreData): MainStoreSnapshot {
-  const s = store.main_store_report_snapshot;
-  if (s && Array.isArray(s.rows) && s.rows.length > 0) {
-    return s as MainStoreSnapshot;
-  }
-  return seedPrev as MainStoreSnapshot;
+export type MainStoreReportOptions = {
+  /** Previous count date (prev_date). */
+  from?: string | null;
+  /** Current snapshot date (snapshot_date / To). */
+  to?: string | null;
+  /** @deprecated Prefer `to`. */
+  date?: string | null;
+  category?: string | null;
+  /** products | consumables | crash_cart | empty = all non-crash default products */
+  group?: string | null;
+  location?: string | null;
+};
+
+function isYmd(s: string | null | undefined): s is string {
+  return !!s && /^\d{4}-\d{2}-\d{2}$/.test(s);
 }
 
-/** Build live location pivot for Products-scope aesthetic items. */
-export function livePivot(store: StoreData): Map<string, {
+function daysApart(a: string, b: string): number {
+  const da = parseYmd(a).getTime();
+  const db = parseYmd(b).getTime();
+  return Math.round(Math.abs(da - db) / 86400000);
+}
+
+/** Load prev snapshot for a From date: exact store match → seeded 17 Sep ≈ → last saved → seed. */
+export function getPrevSnapshot(
+  store: StoreData,
+  fromYmd?: string | null
+): MainStoreSnapshot {
+  const s = store.main_store_report_snapshot;
+  const hasStore =
+    !!s && Array.isArray(s.rows) && s.rows.length > 0
+      ? (s as MainStoreSnapshot)
+      : null;
+  const seed = seedPrev as MainStoreSnapshot;
+
+  if (isYmd(fromYmd)) {
+    if (hasStore && hasStore.snapshot_date === fromYmd) {
+      return hasStore;
+    }
+    if (fromYmd === "2026-09-17" || daysApart(fromYmd, "2026-09-17") <= 1) {
+      return {
+        ...seed,
+        snapshot_date: fromYmd,
+        label: formatLongLabel(fromYmd),
+      };
+    }
+    if (hasStore) return hasStore;
+    return seed;
+  }
+
+  if (hasStore) return hasStore;
+  return seed;
+}
+
+/** Build live location pivot; default scope = products (excludes consumables + crash cart). */
+export function livePivot(
+  store: StoreData,
+  opts?: { group?: string | null; category?: string | null }
+): Map<string, {
   product: string;
   category: string;
   expiry: string;
@@ -195,6 +243,8 @@ export function livePivot(store: StoreData): Map<string, {
   niveen: number;
   sassani: number;
 }> {
+  const group = (opts?.group ?? "products").trim().toLowerCase();
+  const categoryFilter = (opts?.category ?? "").trim().toLowerCase();
   const byId = new Map(store.products.map((p) => [p.id, p]));
   const map = new Map<string, ReturnType<typeof emptyLoc> & {
     product: string; category: string; expiry: string;
@@ -205,9 +255,19 @@ export function livePivot(store: StoreData): Map<string, {
     if (!(loc in LOC_KEY)) continue;
     const p = byId.get(h.product_id);
     if (!p) continue;
-    if (getStockGroup(p) === "crash_cart") continue;
-    // Products scope for Main Store report: exclude consumables
-    if (getStockGroup(p) === "consumables") continue;
+    const g = getStockGroup(p);
+    if (group === "products") {
+      if (g === "crash_cart" || g === "consumables") continue;
+    } else if (group === "consumables") {
+      if (g !== "consumables") continue;
+    } else if (group === "crash_cart") {
+      if (g !== "crash_cart") continue;
+    }
+    // group === "" → all
+    if (categoryFilter) {
+      const cat = (p.category || "").trim().toLowerCase();
+      if (cat !== categoryFilter) continue;
+    }
     const key = alnum(p.product);
     let row = map.get(key);
     if (!row) {
@@ -226,16 +286,41 @@ export function livePivot(store: StoreData): Map<string, {
   return map;
 }
 
+function normalizeOpts(
+  asOfOrOpts?: string | null | MainStoreReportOptions
+): MainStoreReportOptions {
+  if (asOfOrOpts == null || typeof asOfOrOpts === "string") {
+    return { to: asOfOrOpts ?? null, from: null };
+  }
+  return asOfOrOpts;
+}
+
 export function buildMainStoreReport(
   store: StoreData,
-  asOfYmd?: string | null
+  asOfOrOpts?: string | null | MainStoreReportOptions
 ): MainStoreReport {
-  const snapshot_date = asOfYmd && /^\d{4}-\d{2}-\d{2}$/.test(asOfYmd) ? asOfYmd : dubaiYmd();
+  const opts = normalizeOpts(asOfOrOpts);
+  const toRaw = opts.to ?? opts.date ?? null;
+  const fromRaw = opts.from ?? null;
+  const snapshot_date = isYmd(toRaw) ? toRaw : dubaiYmd();
   const snap = parseYmd(snapshot_date);
-  const prevSnap = getPrevSnapshot(store);
-  const prev_date = prevSnap.snapshot_date || "2026-09-17";
-  const prev_label = prevSnap.label || formatLongLabel(prev_date);
-  const live = livePivot(store);
+  const prevSnap = getPrevSnapshot(store, fromRaw);
+  const prev_date = isYmd(fromRaw)
+    ? fromRaw
+    : prevSnap.snapshot_date || "2026-09-17";
+  const prev_label = formatLongLabel(prev_date);
+  const live = livePivot(store, {
+    group: opts.group ?? "products",
+    category: opts.category ?? null,
+  });
+  const locationFilter = (opts.location ?? "").trim();
+  const locKeyFilter =
+    locationFilter && locationFilter in LOC_KEY
+      ? LOC_KEY[locationFilter as keyof typeof LOC_KEY]
+      : null;
+
+  const groupOpt = (opts.group ?? "products").trim().toLowerCase();
+  const useMasterPrev = groupOpt === "products" || groupOpt === "";
 
   const prevIdx = new Map<string, (typeof prevSnap.rows)[0]>();
   for (const r of prevSnap.rows) {
@@ -244,7 +329,7 @@ export function buildMainStoreReport(
 
   const rows: MainStoreSku[] = [];
   const seenLive = new Set<string>();
-  const masterOrder = [...prevSnap.rows];
+  const masterOrder = useMasterPrev ? [...prevSnap.rows] : [];
 
   for (const prev of masterOrder) {
     const key = ALIASES[alnum(prev.product)] || alnum(prev.product);
@@ -296,9 +381,10 @@ export function buildMainStoreReport(
   for (const [key, now] of live) {
     if (seenLive.has(alnum(now.product)) || seenLive.has(key)) continue;
     if (prevIdx.has(key) || prevIdx.has(ALIASES[key] || key)) continue;
-    // only aesthetic-ish new
     const g = getStockGroup({ category: now.category, product: now.product } as never);
-    if (g !== "products") continue;
+    if (groupOpt === "products" && g !== "products") continue;
+    if (groupOpt === "consumables" && g !== "consumables") continue;
+    if (groupOpt === "crash_cart" && g !== "crash_cart") continue;
     const total = now.main + now.ahmad + now.saly + now.niveen + now.sassani;
     new_skus.push(now.product);
     rows.push({
@@ -314,6 +400,22 @@ export function buildMainStoreReport(
       is_transducer: isTransducerSku(now.category, now.product),
     });
   }
+
+  let filtered = rows;
+  if (locKeyFilter) {
+    filtered = rows.filter((r) => (r[locKeyFilter] ?? 0) > 0);
+  }
+  if ((opts.category ?? "").trim()) {
+    const cf = (opts.category ?? "").trim().toLowerCase();
+    filtered = filtered.filter(
+      (r) =>
+        (r.category || "").trim().toLowerCase() === cf ||
+        (r.category_long || "").trim().toLowerCase() === cf
+    );
+  }
+  // Replace rows with filtered for report output
+  rows.length = 0;
+  rows.push(...filtered);
 
   const nonT = rows.filter((r) => !r.is_transducer);
   const units_now = nonT.reduce((s, r) => s + r.total, 0);
@@ -376,4 +478,115 @@ export function mainStoreReportToCsv(report: MainStoreReport): string {
     ].map(esc).join(","));
   }
   return lines.join("\n");
+}
+
+/** Excel export — same inventory columns as PDF pages + Used / Receipt. */
+export async function mainStoreReportToXlsx(
+  report: MainStoreReport
+): Promise<Buffer> {
+  const ExcelJS = (await import("exceljs")).default;
+  const wb = new ExcelJS.Workbook();
+  wb.creator = "Clinic Inventory";
+  wb.created = new Date();
+  wb.description = `Main Store Stock Report ${report.prev_date} → ${report.snapshot_date}`;
+
+  const PURPLE = "5C2D91";
+  const ZEBRA = "F5F5F7";
+
+  const meta = wb.addWorksheet("Summary");
+  meta.columns = [
+    { header: "Field", key: "field", width: 28 },
+    { header: "Value", key: "value", width: 48 },
+  ];
+  const metaRows: Array<[string, string | number]> = [
+    ["Report", "Main Store Stock Report"],
+    ["From (previous count)", report.prev_date],
+    ["From label", report.prev_label],
+    ["To (snapshot)", report.snapshot_date],
+    ["To label", report.snapshot_label],
+    ["SKU lines", report.sku_n],
+    ["In stock", report.in_stock],
+    ["Out of stock", report.oos],
+    ["Units now (excl. transducers)", report.units_now],
+    ["Units prev (excl. transducers)", report.units_prev],
+    ["Used total", report.used_total],
+    ["Receipt total", report.receipt_total],
+  ];
+  for (const [field, value] of metaRows) {
+    meta.addRow({ field, value });
+  }
+  const mh = meta.getRow(1);
+  mh.font = { bold: true, color: { argb: "FFFFFFFF" } };
+  mh.fill = {
+    type: "pattern",
+    pattern: "solid",
+    fgColor: { argb: `FF${PURPLE}` },
+  };
+
+  const sheet = wb.addWorksheet("Inventory", {
+    views: [{ state: "frozen", ySplit: 1 }],
+  });
+  sheet.columns = [
+    { header: "Category", key: "category", width: 22 },
+    { header: "Product", key: "product", width: 36 },
+    { header: "Expiry", key: "expiry", width: 10 },
+    { header: "Status", key: "status", width: 18 },
+    { header: "Total", key: "total", width: 10 },
+    { header: "Main", key: "main", width: 10 },
+    { header: "Ahmad", key: "ahmad", width: 10 },
+    { header: "Saly", key: "saly", width: 10 },
+    { header: "Niveen", key: "niveen", width: 10 },
+    { header: "Sassani", key: "sassani", width: 10 },
+    { header: "Used", key: "used", width: 10 },
+    { header: "Receipt", key: "receipt", width: 10 },
+  ];
+
+  const headerRow = sheet.getRow(1);
+  headerRow.font = { bold: true, color: { argb: "FFFFFFFF" } };
+  headerRow.fill = {
+    type: "pattern",
+    pattern: "solid",
+    fgColor: { argb: `FF${PURPLE}` },
+  };
+  headerRow.alignment = { vertical: "middle", horizontal: "center" };
+  headerRow.height = 20;
+
+  for (const r of report.rows) {
+    const row = sheet.addRow({
+      category: r.category_long || r.category,
+      product: r.product,
+      expiry: r.expiry,
+      status: r.status,
+      total: r.total,
+      main: r.main,
+      ahmad: r.ahmad,
+      saly: r.saly,
+      niveen: r.niveen,
+      sassani: r.sassani,
+      used: r.used,
+      receipt: r.receipt,
+    });
+    if (row.number % 2 === 0) {
+      row.fill = {
+        type: "pattern",
+        pattern: "solid",
+        fgColor: { argb: `FF${ZEBRA}` },
+      };
+    }
+    for (const k of [
+      "total",
+      "main",
+      "ahmad",
+      "saly",
+      "niveen",
+      "sassani",
+      "used",
+      "receipt",
+    ] as const) {
+      row.getCell(k).alignment = { horizontal: "right" };
+    }
+  }
+
+  const buf = await wb.xlsx.writeBuffer();
+  return Buffer.from(buf);
 }
