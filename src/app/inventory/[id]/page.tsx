@@ -210,7 +210,7 @@ export default function ProductDetailPage() {
   const aliases = item.barcode_aliases || [];
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <Link href="/inventory" className="text-sm text-brand-700 font-semibold">
         ← Back to stock
       </Link>

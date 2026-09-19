@@ -16,7 +16,7 @@ export default function Nav() {
 
   return (
     <nav className="fixed bottom-0 inset-x-0 z-50 border-t border-slate-200 bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/80 pb-[env(safe-area-inset-bottom)]">
-      <div className="mx-auto flex max-w-lg items-stretch justify-around">
+      <div className="mx-auto flex max-w-[800px] items-stretch justify-around">
         {tabs.map((t) => {
           const active =
             t.href === "/"

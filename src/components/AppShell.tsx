@@ -12,7 +12,7 @@ function Header() {
   const canEditSettings = !!user && user.role === "admin";
   return (
     <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/95 backdrop-blur">
-      <div className="mx-auto flex max-w-lg items-center justify-between px-4 py-3">
+      <div className="mx-auto flex max-w-[800px] items-center justify-between px-4 md:px-6 py-3">
         <div>
           <p className="text-[10px] font-semibold uppercase tracking-wider text-brand-600">
             Clinic
@@ -74,7 +74,7 @@ function ShellBody({ children }: { children: React.ReactNode }) {
   return (
     <>
       <Header />
-      <main className="mx-auto max-w-lg px-4 py-4">{children}</main>
+      <main className="mx-auto max-w-[800px] px-4 md:px-6 py-4">{children}</main>
       {loggedIn && <Nav />}
     </>
   );
