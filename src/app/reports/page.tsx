@@ -11,6 +11,7 @@ import {
   STOCK_GROUP_LABELS,
   type StockGroup,
 } from "@/lib/stock-groups";
+import StockValueReportSection from "@/components/StockValueReportSection";
 
 /** YYYY-MM-DD in Asia/Dubai (falls back to local if Intl fails). */
 function ymdInDubai(d = new Date()): string {
@@ -285,9 +286,9 @@ export default function ReportsPage() {
   if (!allowed) {
     return (
       <div className="space-y-3">
-        <h2 className="text-lg font-bold">Staff stock report</h2>
+        <h2 className="text-lg font-bold">Reports</h2>
         <p className="text-sm text-rose-600">
-          This report is only available to admin, manager, and head nurse.
+          Reports are only available to admin, manager, and head nurse.
         </p>
         <Link href="/" className="btn-secondary text-sm">
           ← Back home
@@ -305,14 +306,22 @@ export default function ReportsPage() {
     <div className="space-y-4 report-page">
       <div className="no-print flex items-start justify-between gap-2">
         <div>
-          <h2 className="text-lg font-bold">Staff stock report</h2>
+          <h1 className="text-lg font-bold">Reports</h1>
           <p className="text-xs text-slate-500">
-            Stock added · transfers from Main Store · use / sale by staff
+            Staff activity and clinic stock value
           </p>
         </div>
         <Link href="/" className="text-xs font-semibold text-brand-700">
           Home
         </Link>
+      </div>
+
+      <section className="space-y-4">
+      <div className="no-print">
+        <h2 className="text-lg font-bold">Staff stock report</h2>
+        <p className="text-xs text-slate-500">
+          Stock added · transfers from Main Store · use / sale by staff
+        </p>
       </div>
 
       <div className="no-print card p-4 space-y-3">
@@ -699,6 +708,9 @@ export default function ReportsPage() {
           )}
         </>
       )}
+      </section>
+
+      <StockValueReportSection />
     </div>
   );
 }
